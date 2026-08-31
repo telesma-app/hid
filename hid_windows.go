@@ -3,15 +3,14 @@ package hid
 
 import (
 	"context"
+	"encoding/binary"
 	"errors"
 	"fmt"
 	"iter"
-	"strings"
 	"time"
 	"unsafe"
 
 	"golang.org/x/sys/windows"
-	"golang.org/x/text/encoding/unicode"
 )
 
 var (
@@ -353,30 +352,19 @@ func getDeviceInfo(devPath string) (*DeviceInfo, error) {
 	deviceInfo.ProductID = attrs.ProductID
 	deviceInfo.ReleaseNbr = attrs.VersionNumber
 
-	decoder := unicode.UTF16(unicode.LittleEndian, unicode.IgnoreBOM).NewDecoder()
-
 	mfrStr, _ := getManufacturerString(hFile)
 	if len(mfrStr) > 0 {
-		deviceInfo.MfrStr, err = decoder.String(strings.TrimRight(string(mfrStr), string([]byte{0})) + "\u0000")
-		if err != nil {
-			return nil, err
-		}
+		deviceInfo.MfrStr = utf16LEBytesToString(mfrStr)
 	}
 
 	productStr, _ := getProductString(hFile)
 	if len(productStr) > 0 {
-		deviceInfo.ProductStr, err = decoder.String(strings.TrimRight(string(productStr), string([]byte{0})) + "\u0000")
-		if err != nil {
-			return nil, err
-		}
+		deviceInfo.ProductStr = utf16LEBytesToString(productStr)
 	}
 
 	serialNumberStr, _ := getSerialNumberString(hFile)
 	if len(serialNumberStr) > 0 {
-		deviceInfo.SerialNbr, err = decoder.String(strings.TrimRight(string(serialNumberStr), string([]byte{0})) + "\u0000")
-		if err != nil {
-			return nil, err
-		}
+		deviceInfo.SerialNbr = utf16LEBytesToString(serialNumberStr)
 	}
 
 	if err := func() error {
@@ -401,6 +389,15 @@ func getDeviceInfo(devPath string) (*DeviceInfo, error) {
 	}
 
 	return deviceInfo, nil
+}
+
+func utf16LEBytesToString(data []byte) string {
+	codeUnits := make([]uint16, len(data)/2)
+	for i := range codeUnits {
+		codeUnits[i] = binary.LittleEndian.Uint16(data[i*2:])
+	}
+
+	return windows.UTF16ToString(codeUnits)
 }
 
 var (
