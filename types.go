@@ -1,18 +1,31 @@
 package hid
 
+// Descriptor holds a platform observation. A non-nil Value is a successful
+// read, including zero IDs and empty strings. Err holds a read failure.
+// When neither is set, the platform did not provide a value.
+type Descriptor[T any] struct {
+	Value *T    `json:"value"`
+	Err   error `json:"-"`
+}
+
 type DeviceInfo struct {
-	Path           string // Platform-Specific Device Path
-	VendorID       uint16 // Device Vendor ID
-	ProductID      uint16 // Device Product ID
-	SerialNbr      string // Serial Number
-	ReleaseNbr     uint16 // Device Version Number
-	MfrStr         string // Manufacturer String
-	ProductStr     string // Product String
+	Path string // Platform-Specific Device Path
+	// VendorID and ProductID may be unavailable on macOS.
+	VendorID       Descriptor[uint16]
+	ProductID      Descriptor[uint16]
+	SerialNbr      Descriptor[string] // Reported serial; not a verified identity
+	ReleaseNbr     uint16             // Device Version Number
+	MfrStr         Descriptor[string]
+	ProductStr     Descriptor[string]
 	UsagePage      uint16 // Usage Page for Device/Interface
 	Usage          uint16 // Usage for Device/Interface
 	InterfaceNbr   int    // USB Interface Number
 	InstanceID     string
 	ParentDeviceID string
+	// HIDName and HIDUnique retain Linux HID_NAME and HID_UNIQ separately from
+	// USB descriptors. HIDUnique may be a transport address.
+	HIDName   Descriptor[string]
+	HIDUnique Descriptor[string]
 }
 
 type ioResult struct {
@@ -124,22 +137,22 @@ func (opts enumerateOptions) match(info *DeviceInfo) bool {
 	if opts.path != nil && info.Path != *opts.path {
 		return false
 	}
-	if opts.vendorID != nil && info.VendorID != *opts.vendorID {
+	if opts.vendorID != nil && (info.VendorID.Value == nil || *info.VendorID.Value != *opts.vendorID) {
 		return false
 	}
-	if opts.productID != nil && info.ProductID != *opts.productID {
+	if opts.productID != nil && (info.ProductID.Value == nil || *info.ProductID.Value != *opts.productID) {
 		return false
 	}
-	if opts.serialNbr != nil && info.SerialNbr != *opts.serialNbr {
+	if opts.serialNbr != nil && (info.SerialNbr.Value == nil || *info.SerialNbr.Value != *opts.serialNbr) {
 		return false
 	}
 	if opts.releaseNbr != nil && info.ReleaseNbr != *opts.releaseNbr {
 		return false
 	}
-	if opts.mfrStr != nil && info.MfrStr != *opts.mfrStr {
+	if opts.mfrStr != nil && (info.MfrStr.Value == nil || *info.MfrStr.Value != *opts.mfrStr) {
 		return false
 	}
-	if opts.productStr != nil && info.ProductStr != *opts.productStr {
+	if opts.productStr != nil && (info.ProductStr.Value == nil || *info.ProductStr.Value != *opts.productStr) {
 		return false
 	}
 	if opts.usagePage != nil && info.UsagePage != *opts.usagePage {

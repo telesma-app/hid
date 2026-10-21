@@ -21,7 +21,7 @@ The library was created primarily as the HID backend for [`telesma-app/ctap`](ht
 
 ## Installation
 
-The module requires Go 1.25 or newer.
+The module requires Go 1.27 or newer.
 
 ```sh
 go get github.com/telesma-app/hid
@@ -38,18 +38,30 @@ for info, err := range hid.Enumerate(
 ) {
 	if err != nil {
 		log.Printf("enumerate HID: %v", err)
+	}
+	if info == nil {
 		continue
 	}
 
-	log.Printf(
-		"path=%q vid=%04x pid=%04x product=%q",
-		info.Path,
-		info.VendorID,
-		info.ProductID,
-		info.ProductStr,
-	)
+	log.Printf("path=%q", info.Path)
+	if info.ProductStr.Value != nil {
+		log.Printf("product=%q", *info.ProductStr.Value)
+	}
 }
 ```
+
+`VendorID` and `ProductID` are `Descriptor[uint16]`; `MfrStr`, `ProductStr`, and `SerialNbr` are `Descriptor[string]`. Each carries only `Value *T` and `Err error`:
+
+- A non-nil `Value` is a successful read, including a zero ID or an empty string.
+- A non-nil `Err` is a read or conversion failure; the original Go error is retained.
+- Both nil means the platform did not provide a value; descriptor presence is unknown.
+
+The caller owns serialization of descriptor errors; `Err` is omitted from JSON.
+
+Descriptor failures do not hide a device from enumeration or events; filters
+match only successfully read values. Enumeration can return both a device and
+an error for incomplete discovery metadata; callers can still use the returned
+fields. The same error is retained as `MetadataErr` in watcher snapshots and events.
 
 Pass `DeviceInfo.Path` to `OpenPath` to get a device with `Read`, `Write`, `SendFeatureReport`, `GetFeatureReport`, and `Close`. Output and feature-report buffers begin with the report ID; use `0` for an unnumbered report. Higher-level framing, such as CTAPHID, is intentionally left to packages such as [`telesma-app/ctap`](https://github.com/telesma-app/ctap).
 
@@ -104,7 +116,9 @@ Watch covers all HID devices and should be filtered by the caller. Delivery is o
 
 ## Platform notes
 
-- Device paths are opaque and platform-specific. `DeviceInfo` metadata is best-effort, and fields unavailable on a platform remain empty or zero.
+- Device paths are opaque and platform-specific. Optional descriptor availability is recorded explicitly; other metadata remains best-effort.
+- Windows reads descriptors through `HidD_GetAttributes` and the HID string APIs. macOS reads IOHID properties; a missing property is unknown, because IOHID does not expose its underlying read outcome.
+- Linux reads USB descriptors from sysfs. `HIDName` and `HIDUnique` preserve kernel-provided names and identifiers separately; `HIDUnique` may be a transport address.
 - Enumeration and event monitoring do not guarantee I/O access; `OpenPath` remains subject to operating-system, driver, and sandbox policy.
 - Reads block by default. A context deadline is portable; `WithReadTimeout` remains available in Windows builds.
 - Cancellation is best-effort. Windows requests cancellation of the specific overlapped read or write with `CancelIoEx`. On macOS, canceling a read stops waiting for the next callback report. Linux I/O and an in-flight macOS write may continue in the driver or device after the method returns; operations of the same kind remain serialized until the native call finishes.

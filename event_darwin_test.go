@@ -77,11 +77,11 @@ func TestEventRemovalUsesCachedDeviceInfo(t *testing.T) {
 		devices: map[ioHIDDeviceRef]*DeviceInfo{
 			123: {
 				Path:       "cached-path",
-				VendorID:   0x1050,
-				ProductID:  0x0407,
+				VendorID:   Descriptor[uint16]{Value: new(uint16(0x1050))},
+				ProductID:  Descriptor[uint16]{Value: new(uint16(0x0407))},
 				UsagePage:  0xf1d0,
 				Usage:      1,
-				ProductStr: "cached product",
+				ProductStr: Descriptor[string]{Value: new("cached product")},
 			},
 		},
 	}
@@ -120,16 +120,17 @@ func waitForDarwinEvent(t *testing.T, events <-chan DeviceEvent, eventType Devic
 				continue
 			}
 			info := event.DeviceInfo
-			haystack := strings.ToLower(strings.Join([]string{
-				info.Path,
-				info.MfrStr,
-				info.ProductStr,
-				info.SerialNbr,
-			}, " "))
+			fields := []string{info.Path}
+			for _, value := range []*string{info.MfrStr.Value, info.ProductStr.Value, info.SerialNbr.Value} {
+				if value != nil {
+					fields = append(fields, *value)
+				}
+			}
+			haystack := strings.ToLower(strings.Join(fields, " "))
 			if hint != "" && !strings.Contains(haystack, hint) {
 				continue
 			}
-			t.Logf("event type=%s path=%q product=%q err=%v", event.Type, info.Path, info.ProductStr, event.MetadataErr)
+			t.Logf("event type=%s metadata=%q err=%v", event.Type, fields, event.MetadataErr)
 			return event
 		case <-deadline.C:
 			t.Fatalf("timed out waiting for %s event (hint=%q)", eventType, hint)

@@ -25,6 +25,7 @@ var (
 	cfStringGetMaxSize        func(cfIndex, uint32) cfIndex
 	cfNumberCreate            func(cfAllocatorRef, int32, uintptr) cfNumberRef
 	cfNumberGetValue          func(cfTypeRef, int32, uintptr) bool
+	cfNumberGetTypeID         func() uintptr
 	cfDictionaryCreate        func(cfAllocatorRef, uintptr, uintptr, cfIndex, uintptr, uintptr) cfDictionaryRef
 	cfGetTypeID               func(cfTypeRef) uintptr
 	cfStringGetTypeID         func() uintptr
@@ -89,6 +90,7 @@ func init() {
 	purego.RegisterLibFunc(&cfStringGetMaxSize, coreFoundation, "CFStringGetMaximumSizeForEncoding")
 	purego.RegisterLibFunc(&cfNumberCreate, coreFoundation, "CFNumberCreate")
 	purego.RegisterLibFunc(&cfNumberGetValue, coreFoundation, "CFNumberGetValue")
+	purego.RegisterLibFunc(&cfNumberGetTypeID, coreFoundation, "CFNumberGetTypeID")
 	purego.RegisterLibFunc(&cfDictionaryCreate, coreFoundation, "CFDictionaryCreate")
 	purego.RegisterLibFunc(&cfGetTypeID, coreFoundation, "CFGetTypeID")
 	purego.RegisterLibFunc(&cfStringGetTypeID, coreFoundation, "CFStringGetTypeID")
@@ -646,12 +648,12 @@ func getDeviceInfo(device ioHIDDeviceRef) (*DeviceInfo, error) {
 
 	return &DeviceInfo{
 		Path:       strconv.FormatUint(entryID, 16),
-		VendorID:   uint16(intProperty(device, "VendorID")),
-		ProductID:  uint16(intProperty(device, "ProductID")),
+		VendorID:   numberDescriptor(device, "VendorID"),
+		ProductID:  numberDescriptor(device, "ProductID"),
 		ReleaseNbr: uint16(intProperty(device, "VersionNumber")),
-		SerialNbr:  stringProperty(device, "SerialNumber"),
-		MfrStr:     stringProperty(device, "Manufacturer"),
-		ProductStr: stringProperty(device, "Product"),
+		SerialNbr:  stringDescriptor(device, "SerialNumber"),
+		MfrStr:     stringDescriptor(device, "Manufacturer"),
+		ProductStr: stringDescriptor(device, "Product"),
 		UsagePage:  uint16(intProperty(device, "PrimaryUsagePage")),
 		Usage:      uint16(intProperty(device, "PrimaryUsage")),
 		InstanceID: strconv.FormatUint(entryID, 16),
@@ -687,15 +689,40 @@ func intProperty(device ioHIDDeviceRef, key string) int {
 	return int(n)
 }
 
-func stringProperty(device ioHIDDeviceRef, key string) string {
+func numberDescriptor(device ioHIDDeviceRef, key string) Descriptor[uint16] {
 	cfKey := cfString(key)
 	defer cfRelease(cfTypeRef(cfKey))
 
 	value := ioHIDDeviceGetProperty(device, cfKey)
-	if value == 0 || cfGetTypeID(value) != cfStringGetTypeID() {
-		return ""
+	if value == 0 {
+		return Descriptor[uint16]{}
 	}
-	return cfStringToString(cfStringRef(value))
+	var n int32
+	if cfGetTypeID(value) != cfNumberGetTypeID() ||
+		!cfNumberGetValue(value, kCFNumberSInt32Type, uintptr(unsafe.Pointer(&n))) || n < 0 || n > 0xffff {
+		return Descriptor[uint16]{Err: fmt.Errorf("%s is not a uint16 CFNumber", key)}
+	}
+	return Descriptor[uint16]{Value: new(uint16(n))}
+}
+
+func stringDescriptor(device ioHIDDeviceRef, key string) Descriptor[string] {
+	cfKey := cfString(key)
+	defer cfRelease(cfTypeRef(cfKey))
+
+	value := ioHIDDeviceGetProperty(device, cfKey)
+	if value == 0 {
+		return Descriptor[string]{}
+	}
+	if cfGetTypeID(value) != cfStringGetTypeID() {
+		return Descriptor[string]{Err: fmt.Errorf("%s is not a CFString", key)}
+	}
+	s := cfStringRef(value)
+	bufSize := cfStringGetMaxSize(cfStringGetLength(s), kCFStringEncodingUTF8) + 1
+	buf := make([]byte, int(bufSize))
+	if !cfStringGetCString(s, uintptr(unsafe.Pointer(unsafe.SliceData(buf))), cfIndex(len(buf)), kCFStringEncodingUTF8) {
+		return Descriptor[string]{Err: errors.New("CFStringGetCString failed")}
+	}
+	return Descriptor[string]{Value: new(string(buf[:bytes.IndexByte(buf, 0)]))}
 }
 
 func cfString(s string) cfStringRef {
@@ -705,26 +732,4 @@ func cfString(s string) cfStringRef {
 
 func cfNumber(n int32) cfNumberRef {
 	return cfNumberCreate(kCFAllocatorDefault, kCFNumberSInt32Type, uintptr(unsafe.Pointer(&n)))
-}
-
-func cfStringToString(s cfStringRef) string {
-	if s == 0 {
-		return ""
-	}
-
-	bufSize := cfStringGetMaxSize(cfStringGetLength(s), kCFStringEncodingUTF8) + 1
-	if bufSize <= 1 {
-		return ""
-	}
-
-	buf := make([]byte, int(bufSize))
-	if !cfStringGetCString(s, uintptr(unsafe.Pointer(unsafe.SliceData(buf))), cfIndex(len(buf)), kCFStringEncodingUTF8) {
-		return ""
-	}
-	for i, b := range buf {
-		if b == 0 {
-			return string(buf[:i])
-		}
-	}
-	return string(buf)
 }

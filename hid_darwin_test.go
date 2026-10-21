@@ -9,7 +9,57 @@ import (
 	"sync/atomic"
 	"testing"
 	"unsafe"
+
+	"github.com/ebitengine/purego"
 )
+
+func TestDarwinDescriptorAvailability(t *testing.T) {
+	original := ioHIDDeviceGetProperty
+	t.Cleanup(func() { ioHIDDeviceGetProperty = original })
+	ioHIDDeviceGetProperty = func(ioHIDDeviceRef, cfStringRef) cfTypeRef { return 0 }
+	if got := numberDescriptor(1, "VendorID"); got.Value != nil || got.Err != nil {
+		t.Fatalf("missing ID = %#v", got)
+	}
+	if got := stringDescriptor(1, "SerialNumber"); got.Value != nil || got.Err != nil {
+		t.Fatalf("missing serial = %#v", got)
+	}
+	zero := cfNumber(0)
+	defer cfRelease(cfTypeRef(zero))
+	ioHIDDeviceGetProperty = func(ioHIDDeviceRef, cfStringRef) cfTypeRef { return cfTypeRef(zero) }
+	if got := numberDescriptor(1, "VendorID"); got.Value == nil || *got.Value != 0 {
+		t.Fatalf("read zero ID = %#v", got)
+	}
+	for _, text := range []string{"", "Security Key ✓"} {
+		value := cfString(text)
+		defer cfRelease(cfTypeRef(value))
+		ioHIDDeviceGetProperty = func(ioHIDDeviceRef, cfStringRef) cfTypeRef { return cfTypeRef(value) }
+		if got := stringDescriptor(1, "SerialNumber"); got.Value == nil || *got.Value != text {
+			t.Fatalf("read serial = %#v, want %q", got, text)
+		}
+	}
+}
+
+func TestDarwinDescriptorConversionFailure(t *testing.T) {
+	// CFString can contain unpaired UTF-16 surrogates. Exercise the actual
+	// conversion, without pretending the native converter returned an error.
+	library, err := purego.Dlopen("/System/Library/Frameworks/CoreFoundation.framework/CoreFoundation", purego.RTLD_NOW|purego.RTLD_GLOBAL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer purego.Dlclose(library)
+	var createString func(cfAllocatorRef, *uint16, cfIndex) cfStringRef
+	purego.RegisterLibFunc(&createString, library, "CFStringCreateWithCharacters")
+	units := []uint16{0xd800}
+	value := createString(kCFAllocatorDefault, &units[0], cfIndex(len(units)))
+	defer cfRelease(cfTypeRef(value))
+	original := ioHIDDeviceGetProperty
+	t.Cleanup(func() { ioHIDDeviceGetProperty = original })
+	ioHIDDeviceGetProperty = func(ioHIDDeviceRef, cfStringRef) cfTypeRef { return cfTypeRef(value) }
+	got := stringDescriptor(1, "Product")
+	if got.Err == nil || got.Err.Error() == "" {
+		t.Fatalf("conversion failure = %#v", got)
+	}
+}
 
 func TestInputReportCallbackPreservesLeadingZero(t *testing.T) {
 	device := &Device{

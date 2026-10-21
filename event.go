@@ -3,9 +3,10 @@ package hid
 import "sync"
 
 type DeviceEvent struct {
-	Type        DeviceEventType
-	DeviceInfo  *DeviceInfo
-	MetadataErr error
+	Type       DeviceEventType
+	DeviceInfo *DeviceInfo
+	// MetadataErr covers discovery failures outside individual descriptors.
+	MetadataErr error `json:"-"`
 }
 
 type DeviceEventType string
@@ -19,7 +20,7 @@ const (
 // MetadataErr means that the device is present but some metadata is incomplete.
 type DeviceSnapshot struct {
 	DeviceInfo  *DeviceInfo
-	MetadataErr error
+	MetadataErr error `json:"-"`
 }
 
 // Snapshot is the initial device state captured by Watch.

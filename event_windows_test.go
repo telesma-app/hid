@@ -12,13 +12,13 @@ import (
 
 func TestReconcileCMStartupEvents(t *testing.T) {
 	callbackErr := errors.New("metadata unavailable")
-	snapshot := []*DeviceInfo{
-		{Path: `\\?\HID#A`, ProductID: 1},
-		{Path: `\\?\hid#b`, ProductID: 2},
-		{Path: `\\?\hid#stale`, ProductID: 3},
+	snapshot := []DeviceSnapshot{
+		{DeviceInfo: &DeviceInfo{Path: `\\?\HID#A`, ProductID: Descriptor[uint16]{Value: new(uint16(1))}}},
+		{DeviceInfo: &DeviceInfo{Path: `\\?\hid#b`, ProductID: Descriptor[uint16]{Value: new(uint16(2))}}},
+		{DeviceInfo: &DeviceInfo{Path: `\\?\hid#stale`, ProductID: Descriptor[uint16]{Value: new(uint16(3))}}},
 		// SetupAPI can occasionally expose the same interface with different
 		// path casing. The startup snapshot must still contain it only once.
-		{Path: `\\?\hid#a`, ProductID: 4},
+		{DeviceInfo: &DeviceInfo{Path: `\\?\hid#a`, ProductID: Descriptor[uint16]{Value: new(uint16(4))}}, MetadataErr: callbackErr},
 	}
 	changes := []DeviceEvent{
 		{
@@ -27,7 +27,7 @@ func TestReconcileCMStartupEvents(t *testing.T) {
 		},
 		{
 			Type:        DeviceEventConnected,
-			DeviceInfo:  &DeviceInfo{Path: `\\?\hid#new`, ProductID: 5},
+			DeviceInfo:  &DeviceInfo{Path: `\\?\hid#new`, ProductID: Descriptor[uint16]{Value: new(uint16(5))}},
 			MetadataErr: callbackErr,
 		},
 		{
@@ -40,7 +40,7 @@ func TestReconcileCMStartupEvents(t *testing.T) {
 		},
 		{
 			Type:        DeviceEventConnected,
-			DeviceInfo:  &DeviceInfo{Path: `\\?\hid#b`, ProductID: 6},
+			DeviceInfo:  &DeviceInfo{Path: `\\?\hid#b`, ProductID: Descriptor[uint16]{Value: new(uint16(6))}},
 			MetadataErr: callbackErr,
 		},
 	}
@@ -51,11 +51,11 @@ func TestReconcileCMStartupEvents(t *testing.T) {
 	}
 
 	if got := events[0]; got.Type != DeviceEventConnected || got.DeviceInfo == nil ||
-		!strings.EqualFold(got.DeviceInfo.Path, `\\?\hid#a`) || got.DeviceInfo.ProductID != 4 {
+		!strings.EqualFold(got.DeviceInfo.Path, `\\?\hid#a`) || *got.DeviceInfo.ProductID.Value != 4 || !errors.Is(got.MetadataErr, callbackErr) {
 		t.Fatalf("first event = %#v, want the de-duplicated A snapshot entry", got)
 	}
 	if got := events[1]; got.Type != DeviceEventConnected || got.DeviceInfo == nil ||
-		!strings.EqualFold(got.DeviceInfo.Path, `\\?\hid#b`) || got.DeviceInfo.ProductID != 6 ||
+		!strings.EqualFold(got.DeviceInfo.Path, `\\?\hid#b`) || *got.DeviceInfo.ProductID.Value != 6 ||
 		!errors.Is(got.MetadataErr, callbackErr) {
 		t.Fatalf("second event = %#v, want the latest B callback", got)
 	}
@@ -76,11 +76,11 @@ func TestCMRemovalUsesCachedDeviceInfo(t *testing.T) {
 
 	cached := &DeviceInfo{
 		Path:       `\\?\hid#token`,
-		VendorID:   0x1050,
-		ProductID:  0x0407,
+		VendorID:   Descriptor[uint16]{Value: new(uint16(0x1050))},
+		ProductID:  Descriptor[uint16]{Value: new(uint16(0x0407))},
 		UsagePage:  0xf1d0,
 		Usage:      1,
-		ProductStr: "Security Key",
+		ProductStr: Descriptor[string]{Value: new("Security Key")},
 	}
 	receiver := &cmEventReceiver{
 		events: queue,
@@ -96,7 +96,7 @@ func TestCMRemovalUsesCachedDeviceInfo(t *testing.T) {
 			t.Fatalf("event type = %q, want %q", event.Type, DeviceEventDisconnected)
 		}
 		if event.DeviceInfo == nil || event.DeviceInfo.UsagePage != 0xf1d0 ||
-			event.DeviceInfo.Usage != 1 || event.DeviceInfo.ProductStr != "Security Key" {
+			event.DeviceInfo.Usage != 1 || *event.DeviceInfo.ProductStr.Value != "Security Key" {
 			t.Fatalf("event info = %#v, want cached FIDO metadata", event.DeviceInfo)
 		}
 	case <-time.After(2 * time.Second):

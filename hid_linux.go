@@ -6,11 +6,8 @@ import (
 	"iter"
 	"os"
 	"path/filepath"
-	"strconv"
-	"strings"
 	"unsafe"
 
-	"github.com/telesma-app/hid/reportparser"
 	"golang.org/x/sys/unix"
 )
 
@@ -33,26 +30,7 @@ func linuxHIDRawNames() ([]string, error) {
 
 func getLinuxDeviceInfo(name string) (*DeviceInfo, error) {
 	name = filepath.Base(name)
-	info := &DeviceInfo{Path: filepath.Join(linuxDeviceDir, name)}
-	sysfsDevicePath := filepath.Join(linuxHIDRawClassDir, name, "device")
-
-	// Parse usage page and usage from the report descriptor.
-	rawDescriptor, err := os.ReadFile(filepath.Join(sysfsDevicePath, "report_descriptor"))
-	if err != nil {
-		return info, err
-	}
-	fillDeviceInfoUsage(info, rawDescriptor)
-
-	// Parse vendor ID, product ID, product name and serial number from uevent.
-	uevent, err := os.ReadFile(filepath.Join(sysfsDevicePath, "uevent"))
-	if err != nil {
-		return info, err
-	}
-	if err := fillDeviceInfoFromUevent(info, uevent); err != nil {
-		return info, err
-	}
-
-	return info, nil
+	return readLinuxDeviceInfo(filepath.Join(linuxDeviceDir, name), filepath.Join(linuxHIDRawClassDir, name, "device"))
 }
 
 func Enumerate(options ...EnumerateOption) iter.Seq2[*DeviceInfo, error] {
@@ -67,70 +45,15 @@ func Enumerate(options ...EnumerateOption) iter.Seq2[*DeviceInfo, error] {
 
 		for _, name := range names {
 			info, err := getLinuxDeviceInfo(name)
-			if err != nil {
-				if !yield(nil, err) {
+			if !opts.match(info) {
+				if err != nil && !yield(nil, err) {
 					return
 				}
 				continue
 			}
 
-			if info == nil {
-				continue
-			}
-			if !opts.match(info) {
-				continue
-			}
-
-			if !yield(info, nil) {
+			if !yield(info, err) {
 				return
-			}
-		}
-	}
-}
-
-func fillDeviceInfoFromUevent(info *DeviceInfo, uevent []byte) error {
-	for _, line := range strings.Split(string(uevent), "\n") {
-		key, value, ok := strings.Cut(line, "=")
-		if !ok {
-			continue
-		}
-
-		switch key {
-		case "HID_ID":
-			parts := strings.Split(value, ":")
-			if len(parts) != 3 {
-				continue
-			}
-			vendorID, err := strconv.ParseUint(parts[1], 16, 16)
-			if err != nil {
-				return err
-			}
-			productID, err := strconv.ParseUint(parts[2], 16, 16)
-			if err != nil {
-				return err
-			}
-			info.VendorID = uint16(vendorID)
-			info.ProductID = uint16(productID)
-		case "HID_NAME":
-			info.ProductStr = value
-		case "HID_UNIQ":
-			info.SerialNbr = value
-		}
-	}
-
-	return nil
-}
-
-func fillDeviceInfoUsage(info *DeviceInfo, rawDescriptor []byte) {
-	for _, item := range reportparser.ParseReport(rawDescriptor) {
-		switch e := item.(type) {
-		case reportparser.UsagePage:
-			if info.UsagePage == 0 {
-				info.UsagePage = e.Value()
-			}
-		case reportparser.Usage:
-			if info.Usage == 0 {
-				info.Usage = e.Value()
 			}
 		}
 	}

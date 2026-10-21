@@ -159,12 +159,7 @@ func (er *cmEventReceiver) onPathAction(action _CM_NOTIFY_ACTION, path string) u
 			devInfo = cached
 		}
 	} else {
-		info, err := getDeviceInfo(path)
-		if err == nil {
-			devInfo = info
-		} else {
-			devErr = err
-		}
+		devInfo, devErr = getDeviceInfo(path)
 	}
 
 	event := DeviceEvent{
@@ -244,7 +239,7 @@ func cmDevicePathKey(path string) string {
 // reconcileCMStartupEvents applies notifications received while Enumerate was
 // running over its result. Notifications win even when SetupAPI yields a stale
 // device after CM already reported its removal.
-func reconcileCMStartupEvents(snapshot []*DeviceInfo, changes []DeviceEvent) []DeviceEvent {
+func reconcileCMStartupEvents(snapshot []DeviceSnapshot, changes []DeviceEvent) []DeviceEvent {
 	state := make(map[string]DeviceEvent, len(snapshot)+len(changes))
 	order := make([]string, 0, len(snapshot)+len(changes))
 	ordered := make(map[string]struct{}, len(snapshot)+len(changes))
@@ -262,10 +257,11 @@ func reconcileCMStartupEvents(snapshot []*DeviceInfo, changes []DeviceEvent) []D
 		state[key] = event
 	}
 
-	for _, info := range snapshot {
+	for _, device := range snapshot {
 		put(DeviceEvent{
-			Type:       DeviceEventConnected,
-			DeviceInfo: info,
+			Type:        DeviceEventConnected,
+			DeviceInfo:  device.DeviceInfo,
+			MetadataErr: device.MetadataErr,
 		})
 	}
 
@@ -292,7 +288,7 @@ func reconcileCMStartupEvents(snapshot []*DeviceInfo, changes []DeviceEvent) []D
 	return events
 }
 
-func (er *cmEventReceiver) publishStartup(snapshot []*DeviceInfo) {
+func (er *cmEventReceiver) publishStartup(snapshot []DeviceSnapshot) {
 	er.mu.Lock()
 	defer er.mu.Unlock()
 	if er.closed {
@@ -343,9 +339,9 @@ func Watch() (Watcher, error) {
 
 	receiver.notify = notify
 
-	var snapshot []*DeviceInfo
+	var snapshot []DeviceSnapshot
 	for info, enumerateErr := range Enumerate() {
-		if enumerateErr != nil {
+		if info == nil && enumerateErr != nil {
 			closeErr := receiver.Close()
 			return nil, errors.Join(
 				fmt.Errorf("enumerate initial HID snapshot: %w", enumerateErr),
@@ -353,7 +349,7 @@ func Watch() (Watcher, error) {
 			)
 		}
 		if info != nil {
-			snapshot = append(snapshot, info)
+			snapshot = append(snapshot, DeviceSnapshot{DeviceInfo: info, MetadataErr: enumerateErr})
 		}
 	}
 	receiver.publishStartup(snapshot)

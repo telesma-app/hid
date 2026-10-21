@@ -126,28 +126,28 @@ func TestIsKernelUeventSender(t *testing.T) {
 func TestReconcileLinuxStartupEvents(t *testing.T) {
 	metadataErr := errors.New("metadata unavailable")
 	snapshot := []DeviceEvent{
-		{Type: DeviceEventConnected, DeviceInfo: &DeviceInfo{Path: "/dev/hidraw0", ProductID: 1}},
-		{Type: DeviceEventConnected, DeviceInfo: &DeviceInfo{Path: "/dev/hidraw1", ProductID: 2}},
-		{Type: DeviceEventConnected, DeviceInfo: &DeviceInfo{Path: "/dev/hidraw2", ProductID: 3}},
-		{Type: DeviceEventConnected, DeviceInfo: &DeviceInfo{Path: "/dev/hidraw0", ProductID: 4}},
+		{Type: DeviceEventConnected, DeviceInfo: &DeviceInfo{Path: "/dev/hidraw0", ProductID: Descriptor[uint16]{Value: new(uint16(1))}}},
+		{Type: DeviceEventConnected, DeviceInfo: &DeviceInfo{Path: "/dev/hidraw1", ProductID: Descriptor[uint16]{Value: new(uint16(2))}}},
+		{Type: DeviceEventConnected, DeviceInfo: &DeviceInfo{Path: "/dev/hidraw2", ProductID: Descriptor[uint16]{Value: new(uint16(3))}}},
+		{Type: DeviceEventConnected, DeviceInfo: &DeviceInfo{Path: "/dev/hidraw0", ProductID: Descriptor[uint16]{Value: new(uint16(4))}}},
 	}
 	changes := []DeviceEvent{
 		{Type: DeviceEventDisconnected, DeviceInfo: &DeviceInfo{Path: "/dev/hidraw2"}},
-		{Type: DeviceEventConnected, DeviceInfo: &DeviceInfo{Path: "/dev/hidraw3", ProductID: 5}, MetadataErr: metadataErr},
+		{Type: DeviceEventConnected, DeviceInfo: &DeviceInfo{Path: "/dev/hidraw3", ProductID: Descriptor[uint16]{Value: new(uint16(5))}}, MetadataErr: metadataErr},
 		{Type: DeviceEventDisconnected, DeviceInfo: &DeviceInfo{Path: "/dev/hidraw3"}},
 		{Type: DeviceEventDisconnected, DeviceInfo: &DeviceInfo{Path: "/dev/hidraw1"}},
-		{Type: DeviceEventConnected, DeviceInfo: &DeviceInfo{Path: "/dev/hidraw1", ProductID: 6}, MetadataErr: metadataErr},
+		{Type: DeviceEventConnected, DeviceInfo: &DeviceInfo{Path: "/dev/hidraw1", ProductID: Descriptor[uint16]{Value: new(uint16(6))}}, MetadataErr: metadataErr},
 	}
 
 	events := reconcileLinuxStartupEvents(snapshot, changes)
 	if len(events) != 2 {
 		t.Fatalf("got %d startup events, want 2: %#v", len(events), events)
 	}
-	if got := events[0]; got.DeviceInfo == nil || got.DeviceInfo.Path != "/dev/hidraw0" || got.DeviceInfo.ProductID != 4 {
+	if got := events[0]; got.DeviceInfo == nil || got.DeviceInfo.Path != "/dev/hidraw0" || *got.DeviceInfo.ProductID.Value != 4 {
 		t.Fatalf("first event = %#v, want de-duplicated hidraw0 snapshot", got)
 	}
 	if got := events[1]; got.DeviceInfo == nil || got.DeviceInfo.Path != "/dev/hidraw1" ||
-		got.DeviceInfo.ProductID != 6 || !errors.Is(got.MetadataErr, metadataErr) {
+		*got.DeviceInfo.ProductID.Value != 6 || !errors.Is(got.MetadataErr, metadataErr) {
 		t.Fatalf("second event = %#v, want latest hidraw1 add", got)
 	}
 
@@ -178,11 +178,11 @@ func TestLinuxRemovalUsesCachedDeviceInfo(t *testing.T) {
 
 	cached := &DeviceInfo{
 		Path:       "/dev/hidraw7",
-		VendorID:   0x1050,
-		ProductID:  0x0407,
+		VendorID:   Descriptor[uint16]{Value: new(uint16(0x1050))},
+		ProductID:  Descriptor[uint16]{Value: new(uint16(0x0407))},
 		UsagePage:  0xf1d0,
 		Usage:      1,
-		ProductStr: "Security Key",
+		ProductStr: Descriptor[string]{Value: new("Security Key")},
 	}
 	receiver := &linuxEventReceiver{
 		events: queue,
@@ -197,7 +197,7 @@ func TestLinuxRemovalUsesCachedDeviceInfo(t *testing.T) {
 		t.Fatalf("event type = %q, want %q", event.Type, DeviceEventDisconnected)
 	}
 	if event.DeviceInfo == nil || event.DeviceInfo.UsagePage != 0xf1d0 ||
-		event.DeviceInfo.Usage != 1 || event.DeviceInfo.ProductStr != "Security Key" {
+		event.DeviceInfo.Usage != 1 || *event.DeviceInfo.ProductStr.Value != "Security Key" {
 		t.Fatalf("event info = %#v, want cached FIDO metadata", event.DeviceInfo)
 	}
 
@@ -206,7 +206,7 @@ func TestLinuxRemovalUsesCachedDeviceInfo(t *testing.T) {
 	receiver.onUevent(linuxUevent{eventType: DeviceEventDisconnected, device: "hidraw7"})
 	event = receiveLinuxEvent(t, queue.Listen())
 	if event.DeviceInfo == nil || event.DeviceInfo.Path != "/dev/hidraw7" ||
-		event.DeviceInfo.VendorID != 0 || event.DeviceInfo.UsagePage != 0 {
+		event.DeviceInfo.VendorID.Value != nil || event.DeviceInfo.UsagePage != 0 {
 		t.Fatalf("fallback event info = %#v", event.DeviceInfo)
 	}
 }
@@ -216,7 +216,7 @@ func TestLinuxAddPublishesPartialDeviceInfo(t *testing.T) {
 	defer queue.Close()
 
 	metadataErr := errors.New("sysfs is not ready")
-	loaded := &DeviceInfo{VendorID: 0x1050, UsagePage: 0xf1d0}
+	loaded := &DeviceInfo{VendorID: Descriptor[uint16]{Value: new(uint16(0x1050))}, UsagePage: 0xf1d0}
 	receiver := &linuxEventReceiver{
 		events:  queue,
 		devices: make(map[string]*DeviceInfo),
@@ -233,12 +233,12 @@ func TestLinuxAddPublishesPartialDeviceInfo(t *testing.T) {
 	if event.Type != DeviceEventConnected || event.DeviceInfo == nil {
 		t.Fatalf("event = %#v, want connected event with partial info", event)
 	}
-	if event.DeviceInfo.Path != "/dev/hidraw9" || event.DeviceInfo.VendorID != 0x1050 ||
+	if event.DeviceInfo.Path != "/dev/hidraw9" || *event.DeviceInfo.VendorID.Value != 0x1050 ||
 		event.DeviceInfo.UsagePage != 0xf1d0 || !errors.Is(event.MetadataErr, metadataErr) {
 		t.Fatalf("partial event = %#v", event)
 	}
 	cached := receiver.devices["/dev/hidraw9"]
-	if cached != loaded || cached != event.DeviceInfo || cached.VendorID != 0x1050 {
+	if cached != loaded || cached != event.DeviceInfo || *cached.VendorID.Value != 0x1050 {
 		t.Fatalf("receiver cache = %#v, want the loaded metadata pointer", cached)
 	}
 }
@@ -247,7 +247,7 @@ func TestLinuxDuplicateAddIsSuppressed(t *testing.T) {
 	queue := newDeviceEventQueue()
 	defer queue.Close()
 
-	cached := &DeviceInfo{Path: "/dev/hidraw4", ProductID: 4}
+	cached := &DeviceInfo{Path: "/dev/hidraw4", ProductID: Descriptor[uint16]{Value: new(uint16(4))}}
 	receiver := &linuxEventReceiver{
 		events: queue,
 		devices: map[string]*DeviceInfo{
@@ -476,16 +476,17 @@ func waitForLinuxEvent(t *testing.T, events <-chan DeviceEvent, eventType Device
 				continue
 			}
 			info := event.DeviceInfo
-			haystack := strings.ToLower(strings.Join([]string{
-				info.Path,
-				info.MfrStr,
-				info.ProductStr,
-				info.SerialNbr,
-			}, " "))
+			fields := []string{info.Path}
+			for _, value := range []*string{info.MfrStr.Value, info.ProductStr.Value, info.SerialNbr.Value} {
+				if value != nil {
+					fields = append(fields, *value)
+				}
+			}
+			haystack := strings.ToLower(strings.Join(fields, " "))
 			if hint != "" && !strings.Contains(haystack, hint) {
 				continue
 			}
-			t.Logf("event type=%s path=%q product=%q err=%v", event.Type, info.Path, info.ProductStr, event.MetadataErr)
+			t.Logf("event type=%s metadata=%q err=%v", event.Type, fields, event.MetadataErr)
 			return event
 		case <-deadline.C:
 			t.Fatalf("timed out waiting for %s event (hint=%q)", eventType, hint)
