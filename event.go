@@ -59,6 +59,7 @@ func newDeviceEventQueue() *deviceEventQueue {
 		stopped: make(chan struct{}),
 	}
 	go q.run()
+
 	return q
 }
 
@@ -70,6 +71,7 @@ func (q *deviceEventQueue) Send(event DeviceEvent) bool {
 		q.mu.Unlock()
 		return false
 	}
+
 	q.pending = append(q.pending, event)
 	q.mu.Unlock()
 
@@ -107,6 +109,7 @@ func (q *deviceEventQueue) run() {
 		q.mu.Lock()
 		if len(q.pending) == 0 {
 			q.mu.Unlock()
+
 			select {
 			case <-q.wake:
 				continue
@@ -116,6 +119,7 @@ func (q *deviceEventQueue) run() {
 		}
 
 		event := q.pending[0]
+
 		q.pending[0] = DeviceEvent{}
 		if len(q.pending) == 1 {
 			q.pending = nil

@@ -49,6 +49,7 @@ func Enumerate(options ...EnumerateOption) iter.Seq2[*DeviceInfo, error] {
 				if err != nil && !yield(nil, err) {
 					return
 				}
+
 				continue
 			}
 
@@ -64,6 +65,7 @@ func OpenPath(path string) (*Device, error) {
 	if err != nil {
 		return nil, err
 	}
+
 	if err := unix.SetNonblock(int(dev.Fd()), true); err != nil {
 		_ = dev.Close()
 		return nil, err
@@ -88,6 +90,7 @@ func (d *Device) Read(ctx context.Context, b []byte) (int, error) {
 		if errors.Is(err, unix.EAGAIN) {
 			continue
 		}
+
 		return n, err
 	}
 }

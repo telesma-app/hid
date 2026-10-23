@@ -28,12 +28,6 @@ type DeviceInfo struct {
 	HIDUnique Descriptor[string]
 }
 
-type ioResult struct {
-	n    int
-	data []byte
-	err  error
-}
-
 type EnumerateOption func(*enumerateOptions)
 
 type enumerateOptions struct {
@@ -128,6 +122,7 @@ func newEnumerateOptions(options []EnumerateOption) enumerateOptions {
 	for _, option := range options {
 		option(&opts)
 	}
+
 	return opts
 }
 
@@ -135,38 +130,50 @@ func (opts enumerateOptions) match(info *DeviceInfo) bool {
 	if opts.path != nil && info.Path != *opts.path {
 		return false
 	}
+
 	if opts.vendorID != nil && (info.VendorID.Value == nil || *info.VendorID.Value != *opts.vendorID) {
 		return false
 	}
+
 	if opts.productID != nil && (info.ProductID.Value == nil || *info.ProductID.Value != *opts.productID) {
 		return false
 	}
+
 	if opts.serialNbr != nil && (info.SerialNbr.Value == nil || *info.SerialNbr.Value != *opts.serialNbr) {
 		return false
 	}
+
 	if opts.releaseNbr != nil && info.ReleaseNbr != *opts.releaseNbr {
 		return false
 	}
+
 	if opts.mfrStr != nil && (info.MfrStr.Value == nil || *info.MfrStr.Value != *opts.mfrStr) {
 		return false
 	}
+
 	if opts.productStr != nil && (info.ProductStr.Value == nil || *info.ProductStr.Value != *opts.productStr) {
 		return false
 	}
+
 	if opts.usagePage != nil && info.UsagePage != *opts.usagePage {
 		return false
 	}
+
 	if opts.usage != nil && info.Usage != *opts.usage {
 		return false
 	}
+
 	if opts.interfaceNbr != nil && info.InterfaceNbr != *opts.interfaceNbr {
 		return false
 	}
+
 	if opts.instanceID != nil && info.InstanceID != *opts.instanceID {
 		return false
 	}
+
 	if opts.parentDeviceID != nil && info.ParentDeviceID != *opts.parentDeviceID {
 		return false
 	}
+
 	return true
 }

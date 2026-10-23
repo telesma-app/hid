@@ -15,7 +15,9 @@ func readLinuxDeviceInfo(path, sysfsDevicePath string) (*DeviceInfo, error) {
 	info := &DeviceInfo{Path: path}
 
 	uevent, err := os.ReadFile(filepath.Join(sysfsDevicePath, "uevent"))
+
 	var usb bool
+
 	if err != nil {
 		info.HIDName = Descriptor[string]{Err: err}
 		info.HIDUnique = Descriptor[string]{Err: err}
@@ -42,6 +44,7 @@ func readLinuxDeviceInfo(path, sysfsDevicePath string) (*DeviceInfo, error) {
 	if err != nil {
 		return info, err
 	}
+
 	fillDeviceInfoUsage(info, rawDescriptor)
 
 	return info, nil
@@ -54,15 +57,18 @@ func linuxUSBDevicePath(hidPath string) (string, error) {
 	}
 	// The USB device is two parents above HID; do not walk into a parent hub.
 	path = filepath.Dir(filepath.Dir(path))
+
 	uevent, err := os.ReadFile(filepath.Join(path, "uevent"))
 	if err != nil {
 		return "", err
 	}
+
 	for _, line := range strings.Split(string(uevent), "\n") {
 		if line == "DEVTYPE=usb_device" {
 			return path, nil
 		}
 	}
+
 	return "", nil
 }
 
@@ -72,9 +78,11 @@ func readLinuxString(path, name string) Descriptor[string] {
 		// A missing sysfs attribute does not establish descriptor absence.
 		return Descriptor[string]{}
 	}
+
 	if err != nil {
 		return Descriptor[string]{Err: err}
 	}
+
 	return Descriptor[string]{Value: new(strings.TrimSuffix(string(data), "\n"))}
 }
 
@@ -96,13 +104,16 @@ func fillDeviceInfoFromUevent(info *DeviceInfo, uevent []byte) (usb bool) {
 				err := fmt.Errorf("invalid HID_ID %q", value)
 				info.VendorID = Descriptor[uint16]{Err: err}
 				info.ProductID = Descriptor[uint16]{Err: err}
+
 				continue
 			}
+
 			usb = parts[0] == "0003" // BUS_USB; never use a Bluetooth adapter's USB strings.
 			info.VendorID = parseLinuxID(parts[1])
 			info.ProductID = parseLinuxID(parts[2])
 		}
 	}
+
 	return usb
 }
 
@@ -111,6 +122,7 @@ func parseLinuxID(value string) Descriptor[uint16] {
 	if err != nil {
 		return Descriptor[uint16]{Err: err}
 	}
+
 	return Descriptor[uint16]{Value: new(uint16(n))}
 }
 

@@ -20,11 +20,13 @@ func TestEventLifecycle(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+
 	events := receiver.Listen()
 
 	if err := receiver.Close(); err != nil {
 		t.Fatalf("first Close: %v", err)
 	}
+
 	if err := receiver.Close(); err != nil {
 		t.Fatalf("second Close: %v", err)
 	}
@@ -44,27 +46,34 @@ func TestWatchCapturesInitialSnapshot(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer receiver.Close()
+	defer func() { _ = receiver.Close() }()
 
 	expected := make(map[string]struct{})
+
 	for info, err := range Enumerate() {
 		if err != nil {
 			t.Fatal(err)
 		}
+
 		expected[info.Path] = struct{}{}
 	}
+
 	seen := make(map[string]struct{}, len(expected))
+
 	for _, device := range receiver.Snapshot().Devices {
 		if device.DeviceInfo == nil {
 			t.Fatal("initial snapshot contains nil DeviceInfo")
 		}
+
 		path := device.DeviceInfo.Path
 		if _, duplicate := seen[path]; duplicate {
 			t.Fatalf("duplicate initial device for %q", path)
 		}
+
 		seen[path] = struct{}{}
 		delete(expected, path)
 	}
+
 	if len(expected) != 0 {
 		t.Fatalf("initial snapshot is missing %d device(s): %v", len(expected), expected)
 	}
@@ -72,6 +81,7 @@ func TestWatchCapturesInitialSnapshot(t *testing.T) {
 
 func TestEventRemovalUsesCachedDeviceInfo(t *testing.T) {
 	queue := newDeviceEventQueue()
+
 	receiver := &darwinEventReceiver{
 		events: queue,
 		devices: map[ioHIDDeviceRef]*DeviceInfo{
@@ -88,14 +98,17 @@ func TestEventRemovalUsesCachedDeviceInfo(t *testing.T) {
 	defer queue.Close()
 
 	receiver.deviceDisconnected(kIOReturnSuccess, 123)
+
 	select {
 	case event := <-queue.Listen():
 		if event.Type != DeviceEventDisconnected {
 			t.Fatalf("event type = %q", event.Type)
 		}
+
 		if event.MetadataErr != nil {
 			t.Fatalf("event error = %v", event.MetadataErr)
 		}
+
 		if event.DeviceInfo == nil || event.DeviceInfo.Path != "cached-path" || event.DeviceInfo.UsagePage != 0xf1d0 {
 			t.Fatalf("event info = %#v", event.DeviceInfo)
 		}
@@ -106,7 +119,9 @@ func TestEventRemovalUsesCachedDeviceInfo(t *testing.T) {
 
 func waitForDarwinEvent(t *testing.T, events <-chan DeviceEvent, eventType DeviceEventType, hint string, timeout time.Duration) DeviceEvent {
 	t.Helper()
+
 	hint = strings.ToLower(hint)
+
 	deadline := time.NewTimer(timeout)
 	defer deadline.Stop()
 
@@ -116,21 +131,27 @@ func waitForDarwinEvent(t *testing.T, events <-chan DeviceEvent, eventType Devic
 			if !ok {
 				t.Fatal("event channel closed before expected event")
 			}
+
 			if event.Type != eventType || event.DeviceInfo == nil {
 				continue
 			}
+
 			info := event.DeviceInfo
+
 			fields := []string{info.Path}
 			for _, value := range []*string{info.MfrStr.Value, info.ProductStr.Value, info.SerialNbr.Value} {
 				if value != nil {
 					fields = append(fields, *value)
 				}
 			}
+
 			haystack := strings.ToLower(strings.Join(fields, " "))
 			if hint != "" && !strings.Contains(haystack, hint) {
 				continue
 			}
+
 			t.Logf("event type=%s metadata=%q err=%v", event.Type, fields, event.MetadataErr)
+
 			return event
 		case <-deadline.C:
 			t.Fatalf("timed out waiting for %s event (hint=%q)", eventType, hint)
@@ -147,9 +168,10 @@ func TestEventManualDisconnectConnect(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer receiver.Close()
+	defer func() { _ = receiver.Close() }()
 
 	hint := os.Getenv("HID_TEST_EVENT_HINT")
+
 	t.Log("disconnect the target HID device")
 	disconnected := waitForDarwinEvent(t, receiver.Listen(), DeviceEventDisconnected, hint, 60*time.Second)
 	t.Log("reconnect the target HID device")
@@ -158,9 +180,11 @@ func TestEventManualDisconnectConnect(t *testing.T) {
 	if disconnected.DeviceInfo.Path == "" {
 		t.Fatal("disconnect event has an empty path")
 	}
+
 	if connected.DeviceInfo.Path == "" {
 		t.Fatal("connect event has an empty path")
 	}
+
 	if connected.MetadataErr != nil {
 		t.Logf("connected metadata is partial: %v", connected.MetadataErr)
 	}

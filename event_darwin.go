@@ -54,6 +54,7 @@ func (er *darwinEventReceiver) Close() error {
 		if runLoop != 0 {
 			cfRunLoopStop(runLoop)
 		}
+
 		<-er.stopped
 	})
 
@@ -62,6 +63,7 @@ func (er *darwinEventReceiver) Close() error {
 
 func (er *darwinEventReceiver) run() {
 	runtime.LockOSThread()
+
 	defer runtime.UnlockOSThread()
 	defer close(er.stopped)
 	defer er.events.Close()
@@ -75,6 +77,7 @@ func (er *darwinEventReceiver) run() {
 	defer cfRelease(cfTypeRef(manager))
 
 	runLoop := cfRunLoopGetCurrent()
+
 	er.mu.Lock()
 	er.runLoop = runLoop
 	er.mu.Unlock()
@@ -93,10 +96,12 @@ func (er *darwinEventReceiver) run() {
 	er.mu.Unlock()
 
 	er.ready <- nil
+
 	for {
 		er.mu.Lock()
 		closed := er.closed
 		er.mu.Unlock()
+
 		if closed {
 			break
 		}
@@ -135,6 +140,7 @@ func (er *darwinEventReceiver) publishCurrentDevices(manager ioHIDManagerRef) {
 
 	devices := make([]uintptr, count)
 	cfSetGetValues(deviceSet, uintptr(unsafe.Pointer(unsafe.SliceData(devices))))
+
 	for _, device := range devices {
 		if device != 0 {
 			er.deviceConnected(kIOReturnSuccess, ioHIDDeviceRef(device))
@@ -147,6 +153,7 @@ func (er *darwinEventReceiver) deviceConnected(result ioReturn, device ioHIDDevi
 	if info == nil {
 		info = &DeviceInfo{}
 	}
+
 	eventErr := errors.Join(callbackResultError("IOHIDManager device matching", result), infoErr)
 
 	er.mu.Lock()
@@ -154,10 +161,12 @@ func (er *darwinEventReceiver) deviceConnected(result ioReturn, device ioHIDDevi
 		er.mu.Unlock()
 		return
 	}
+
 	if _, exists := er.devices[device]; exists {
 		er.mu.Unlock()
 		return
 	}
+
 	er.devices[device] = info
 	if er.initializing {
 		er.snapshot.Devices = append(er.snapshot.Devices, DeviceSnapshot{
@@ -165,6 +174,7 @@ func (er *darwinEventReceiver) deviceConnected(result ioReturn, device ioHIDDevi
 			MetadataErr: eventErr,
 		})
 		er.mu.Unlock()
+
 		return
 	}
 	er.mu.Unlock()
@@ -182,6 +192,7 @@ func (er *darwinEventReceiver) deviceDisconnected(result ioReturn, device ioHIDD
 		er.mu.Unlock()
 		return
 	}
+
 	info := er.devices[device]
 	delete(er.devices, device)
 	er.mu.Unlock()
@@ -190,6 +201,7 @@ func (er *darwinEventReceiver) deviceDisconnected(result ioReturn, device ioHIDD
 	if info == nil {
 		info, infoErr = getDeviceInfo(device)
 	}
+
 	if info == nil {
 		info = &DeviceInfo{}
 	}
@@ -205,6 +217,7 @@ func callbackResultError(operation string, result ioReturn) error {
 	if result == kIOReturnSuccess {
 		return nil
 	}
+
 	return fmt.Errorf("%s callback failed: 0x%08x", operation, uint32(result))
 }
 
@@ -213,6 +226,7 @@ func darwinDeviceMatchingCallback(context uintptr, result ioReturn, _ uintptr, d
 	if !ok {
 		return
 	}
+
 	value.(*darwinEventReceiver).deviceConnected(result, device)
 }
 
@@ -221,6 +235,7 @@ func darwinDeviceRemovalCallback(context uintptr, result ioReturn, _ uintptr, de
 	if !ok {
 		return
 	}
+
 	value.(*darwinEventReceiver).deviceDisconnected(result, device)
 }
 
@@ -236,6 +251,7 @@ func Watch() (Watcher, error) {
 	}
 
 	receiver.cbID = uintptr(darwinEventSeq.Add(1))
+
 	darwinEventReceivers.Store(receiver.cbID, receiver)
 	go receiver.run()
 
@@ -243,5 +259,6 @@ func Watch() (Watcher, error) {
 		<-receiver.stopped
 		return nil, err
 	}
+
 	return receiver, nil
 }

@@ -83,9 +83,11 @@ func TestParseLinuxUevent(t *testing.T) {
 			if ok != test.wantOK {
 				t.Fatalf("parseLinuxUevent ok = %v, want %v; event=%#v", ok, test.wantOK, got)
 			}
+
 			if !test.wantOK {
 				return
 			}
+
 			if got.eventType != test.wantType || got.device != test.wantDevice {
 				t.Fatalf("parseLinuxUevent = %#v, want type=%q device=%q", got, test.wantType, test.wantDevice)
 			}
@@ -143,9 +145,11 @@ func TestReconcileLinuxStartupEvents(t *testing.T) {
 	if len(events) != 2 {
 		t.Fatalf("got %d startup events, want 2: %#v", len(events), events)
 	}
+
 	if got := events[0]; got.DeviceInfo == nil || got.DeviceInfo.Path != "/dev/hidraw0" || *got.DeviceInfo.ProductID.Value != 4 {
 		t.Fatalf("first event = %#v, want de-duplicated hidraw0 snapshot", got)
 	}
+
 	if got := events[1]; got.DeviceInfo == nil || got.DeviceInfo.Path != "/dev/hidraw1" ||
 		*got.DeviceInfo.ProductID.Value != 6 || !errors.Is(got.MetadataErr, metadataErr) {
 		t.Fatalf("second event = %#v, want latest hidraw1 add", got)
@@ -160,11 +164,13 @@ func TestReconcileLinuxStartupEvents(t *testing.T) {
 
 func receiveLinuxEvent(t *testing.T, events <-chan DeviceEvent) DeviceEvent {
 	t.Helper()
+
 	select {
 	case event, ok := <-events:
 		if !ok {
 			t.Fatal("event channel closed before the expected event")
 		}
+
 		return event
 	case <-time.After(2 * time.Second):
 		t.Fatal("timed out waiting for Linux HID event")
@@ -192,10 +198,12 @@ func TestLinuxRemovalUsesCachedDeviceInfo(t *testing.T) {
 	}
 
 	receiver.onUevent(linuxUevent{eventType: DeviceEventDisconnected, device: "hidraw7"})
+
 	event := receiveLinuxEvent(t, queue.Listen())
 	if event.Type != DeviceEventDisconnected {
 		t.Fatalf("event type = %q, want %q", event.Type, DeviceEventDisconnected)
 	}
+
 	if event.DeviceInfo == nil || event.DeviceInfo.UsagePage != 0xf1d0 ||
 		event.DeviceInfo.Usage != 1 || *event.DeviceInfo.ProductStr.Value != "Security Key" {
 		t.Fatalf("event info = %#v, want cached FIDO metadata", event.DeviceInfo)
@@ -204,6 +212,7 @@ func TestLinuxRemovalUsesCachedDeviceInfo(t *testing.T) {
 	// A repeated removal is still a kernel event. With no cache left, it falls
 	// back to the stable device path.
 	receiver.onUevent(linuxUevent{eventType: DeviceEventDisconnected, device: "hidraw7"})
+
 	event = receiveLinuxEvent(t, queue.Listen())
 	if event.DeviceInfo == nil || event.DeviceInfo.Path != "/dev/hidraw7" ||
 		event.DeviceInfo.VendorID.Value != nil || event.DeviceInfo.UsagePage != 0 {
@@ -224,19 +233,23 @@ func TestLinuxAddPublishesPartialDeviceInfo(t *testing.T) {
 			if name != "hidraw9" {
 				t.Fatalf("loader name = %q, want hidraw9", name)
 			}
+
 			return loaded, metadataErr
 		},
 	}
 
 	receiver.onUevent(linuxUevent{eventType: DeviceEventConnected, device: "hidraw9"})
+
 	event := receiveLinuxEvent(t, queue.Listen())
 	if event.Type != DeviceEventConnected || event.DeviceInfo == nil {
 		t.Fatalf("event = %#v, want connected event with partial info", event)
 	}
+
 	if event.DeviceInfo.Path != "/dev/hidraw9" || *event.DeviceInfo.VendorID.Value != 0x1050 ||
 		event.DeviceInfo.UsagePage != 0xf1d0 || !errors.Is(event.MetadataErr, metadataErr) {
 		t.Fatalf("partial event = %#v", event)
 	}
+
 	cached := receiver.devices["/dev/hidraw9"]
 	if cached != loaded || cached != event.DeviceInfo || *cached.VendorID.Value != 0x1050 {
 		t.Fatalf("receiver cache = %#v, want the loaded metadata pointer", cached)
@@ -260,11 +273,13 @@ func TestLinuxDuplicateAddIsSuppressed(t *testing.T) {
 	}
 
 	receiver.onUevent(linuxUevent{eventType: DeviceEventConnected, device: "hidraw4"})
+
 	select {
 	case event := <-queue.Listen():
 		t.Fatalf("duplicate add published an event: %#v", event)
 	case <-time.After(100 * time.Millisecond):
 	}
+
 	if receiver.devices[cached.Path] != cached {
 		t.Fatal("duplicate add replaced the cached device")
 	}
@@ -279,8 +294,8 @@ func TestLinuxTruncatedUeventIsTerminal(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer unix.Close(sockets[0])
-	defer unix.Close(sockets[1])
+	defer func() { _ = unix.Close(sockets[0]) }()
+	defer func() { _ = unix.Close(sockets[1]) }()
 
 	receiver := &linuxEventReceiver{
 		socketFD: sockets[0],
@@ -290,6 +305,7 @@ func TestLinuxTruncatedUeventIsTerminal(t *testing.T) {
 	if _, err := unix.Write(sockets[1], message); err != nil {
 		t.Fatal(err)
 	}
+
 	if err := receiver.drainUevents(make([]byte, 1)); err == nil ||
 		!strings.Contains(err.Error(), "message was truncated") {
 		t.Fatalf("drainUevents error = %v, want terminal truncation error", err)
@@ -301,9 +317,11 @@ func TestLinuxEventReceiverConcurrentClose(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+
 	wakeFD, err := unix.Eventfd(0, unix.EFD_CLOEXEC|unix.EFD_NONBLOCK)
 	if err != nil {
 		_ = unix.Close(socketFD)
+
 		t.Fatal(err)
 	}
 
@@ -317,17 +335,22 @@ func TestLinuxEventReceiverConcurrentClose(t *testing.T) {
 	go receiver.run()
 
 	const closerCount = 8
+
 	errs := make(chan error, closerCount)
+
 	var closers sync.WaitGroup
 	closers.Add(closerCount)
+
 	for range closerCount {
 		go func() {
 			defer closers.Done()
+
 			errs <- receiver.Close()
 		}()
 	}
 
 	done := make(chan struct{})
+
 	go func() {
 		closers.Wait()
 		close(errs)
@@ -339,11 +362,13 @@ func TestLinuxEventReceiverConcurrentClose(t *testing.T) {
 	case <-time.After(5 * time.Second):
 		t.Fatal("concurrent Close calls did not unblock the Linux event receiver")
 	}
+
 	for err := range errs {
 		if err != nil {
 			t.Fatalf("Close failed: %v", err)
 		}
 	}
+
 	if _, ok := <-receiver.Listen(); ok {
 		t.Fatal("Listen remains open after Close")
 	}
@@ -354,9 +379,11 @@ func TestLinuxEventReceiverReportsBackgroundReadFailure(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+
 	wakeFD, err := unix.Eventfd(0, unix.EFD_CLOEXEC|unix.EFD_NONBLOCK)
 	if err != nil {
 		_ = unix.Close(socketFD)
+
 		t.Fatal(err)
 	}
 
@@ -368,6 +395,7 @@ func TestLinuxEventReceiverReportsBackgroundReadFailure(t *testing.T) {
 		devices:  make(map[string]*DeviceInfo),
 	}
 	go receiver.run()
+
 	if err := signalLinuxEventFD(socketFD); err != nil {
 		t.Fatal(err)
 	}
@@ -380,6 +408,7 @@ func TestLinuxEventReceiverReportsBackgroundReadFailure(t *testing.T) {
 	case <-time.After(2 * time.Second):
 		t.Fatal("event channel did not close after background read failure")
 	}
+
 	if err := receiver.Close(); !errors.Is(err, unix.ENOTSOCK) {
 		t.Fatalf("Close error = %v, want ENOTSOCK background failure", err)
 	}
@@ -387,14 +416,17 @@ func TestLinuxEventReceiverReportsBackgroundReadFailure(t *testing.T) {
 
 func linuxIntegrationWatcher(t *testing.T) Watcher {
 	t.Helper()
+
 	receiver, err := Watch()
 	if err != nil {
 		if errors.Is(err, unix.EPERM) || errors.Is(err, unix.EACCES) ||
 			errors.Is(err, unix.EPROTONOSUPPORT) || errors.Is(err, unix.EAFNOSUPPORT) {
 			t.Skipf("Linux uevent backend is unavailable in this environment: %v", err)
 		}
+
 		t.Fatal(err)
 	}
+
 	return receiver
 }
 
@@ -405,6 +437,7 @@ func TestEventLifecycle(t *testing.T) {
 	if err := receiver.Close(); err != nil {
 		t.Fatalf("first Close: %v", err)
 	}
+
 	if err := receiver.Close(); err != nil {
 		t.Fatalf("second Close: %v", err)
 	}
@@ -421,40 +454,48 @@ func TestEventLifecycle(t *testing.T) {
 
 func TestWatchAllowsMultipleWatchers(t *testing.T) {
 	first := linuxIntegrationWatcher(t)
-	defer first.Close()
+	defer func() { _ = first.Close() }()
+
 	second := linuxIntegrationWatcher(t)
-	defer second.Close()
+	defer func() { _ = second.Close() }()
 }
 
 func TestWatchCapturesInitialSnapshot(t *testing.T) {
 	receiver := linuxIntegrationWatcher(t)
-	defer receiver.Close()
+	defer func() { _ = receiver.Close() }()
 
 	names, err := linuxHIDRawNames()
 	if errors.Is(err, os.ErrNotExist) {
 		return
 	}
+
 	if err != nil {
 		t.Fatal(err)
 	}
+
 	expected := make(map[string]struct{}, len(names))
 	for _, name := range names {
 		if isLinuxHIDRawName(name) {
 			expected[linuxHIDRawPath(name)] = struct{}{}
 		}
 	}
+
 	seen := make(map[string]struct{}, len(expected))
+
 	for _, device := range receiver.Snapshot().Devices {
 		if device.DeviceInfo == nil {
 			t.Fatal("initial snapshot contains nil DeviceInfo")
 		}
+
 		path := device.DeviceInfo.Path
 		if _, duplicate := seen[path]; duplicate {
 			t.Fatalf("duplicate initial device for %q", path)
 		}
+
 		seen[path] = struct{}{}
 		delete(expected, path)
 	}
+
 	if len(expected) != 0 {
 		t.Fatalf("initial snapshot is missing %d device(s): %v", len(expected), expected)
 	}
@@ -462,7 +503,9 @@ func TestWatchCapturesInitialSnapshot(t *testing.T) {
 
 func waitForLinuxEvent(t *testing.T, events <-chan DeviceEvent, eventType DeviceEventType, hint string, timeout time.Duration) DeviceEvent {
 	t.Helper()
+
 	hint = strings.ToLower(hint)
+
 	deadline := time.NewTimer(timeout)
 	defer deadline.Stop()
 
@@ -472,21 +515,27 @@ func waitForLinuxEvent(t *testing.T, events <-chan DeviceEvent, eventType Device
 			if !ok {
 				t.Fatal("event channel closed before expected event")
 			}
+
 			if event.Type != eventType || event.DeviceInfo == nil {
 				continue
 			}
+
 			info := event.DeviceInfo
+
 			fields := []string{info.Path}
 			for _, value := range []*string{info.MfrStr.Value, info.ProductStr.Value, info.SerialNbr.Value} {
 				if value != nil {
 					fields = append(fields, *value)
 				}
 			}
+
 			haystack := strings.ToLower(strings.Join(fields, " "))
 			if hint != "" && !strings.Contains(haystack, hint) {
 				continue
 			}
+
 			t.Logf("event type=%s metadata=%q err=%v", event.Type, fields, event.MetadataErr)
+
 			return event
 		case <-deadline.C:
 			t.Fatalf("timed out waiting for %s event (hint=%q)", eventType, hint)
@@ -500,9 +549,10 @@ func TestEventManualDisconnectConnect(t *testing.T) {
 	}
 
 	receiver := linuxIntegrationWatcher(t)
-	defer receiver.Close()
+	defer func() { _ = receiver.Close() }()
 
 	hint := os.Getenv("HID_TEST_EVENT_HINT")
+
 	t.Log("disconnect the target HID device")
 	disconnected := waitForLinuxEvent(t, receiver.Listen(), DeviceEventDisconnected, hint, 60*time.Second)
 	t.Log("reconnect the target HID device")
@@ -511,9 +561,11 @@ func TestEventManualDisconnectConnect(t *testing.T) {
 	if disconnected.DeviceInfo.Path == "" {
 		t.Fatal("disconnect event has an empty path")
 	}
+
 	if connected.DeviceInfo.Path == "" {
 		t.Fatal("connect event has an empty path")
 	}
+
 	if connected.MetadataErr != nil {
 		t.Logf("connected metadata is partial: %v", connected.MetadataErr)
 	}

@@ -56,6 +56,7 @@ func setupDiDestroyDeviceInfoList(deviceInfoSet windows.Handle) error {
 
 func getHidGuid() (*windows.GUID, error) {
 	var hidGuid windows.GUID
+
 	_, _, err := procHidD_GetHidGuid.Call(
 		uintptr(unsafe.Pointer(&hidGuid)),
 	)
@@ -68,7 +69,9 @@ func getHidGuid() (*windows.GUID, error) {
 
 func getAttributes(hidDeviceObject windows.Handle) (*_HIDD_ATTRIBUTES, error) {
 	var hidAttributes _HIDD_ATTRIBUTES
+
 	hidAttributes.Size = uint32(unsafe.Sizeof(hidAttributes))
+
 	r1, _, err := procHidD_GetAttributes.Call(
 		uintptr(hidDeviceObject),
 		uintptr(unsafe.Pointer(&hidAttributes)),
@@ -82,6 +85,7 @@ func getAttributes(hidDeviceObject windows.Handle) (*_HIDD_ATTRIBUTES, error) {
 
 func getHIDString(hidDeviceObject windows.Handle, proc *windows.LazyProc) (string, error) {
 	var buf [126]uint16
+
 	r1, _, err := proc.Call(
 		uintptr(hidDeviceObject),
 		uintptr(unsafe.Pointer(&buf[0])),
@@ -96,6 +100,7 @@ func getHIDString(hidDeviceObject windows.Handle, proc *windows.LazyProc) (strin
 
 func getPreparsedData(hidDeviceObject windows.Handle) (_PHIDP_PREPARSED_DATA, error) {
 	var preparsedData _PHIDP_PREPARSED_DATA
+
 	r1, _, err := procHidD_GetPreparsedData.Call(
 		uintptr(hidDeviceObject),
 		uintptr(unsafe.Pointer(&preparsedData)),
@@ -120,6 +125,7 @@ func freePreparsedData(preparsedData _PHIDP_PREPARSED_DATA) error {
 
 func getCaps(preparsedData _PHIDP_PREPARSED_DATA) (*_HIDP_CAPS, error) {
 	var caps _HIDP_CAPS
+
 	r1, _, err := procHidP_GetCaps.Call(
 		uintptr(preparsedData),
 		uintptr(unsafe.Pointer(&caps)),
@@ -162,6 +168,7 @@ func setupDiEnumDeviceInterfaces(
 	memberIndex uint32,
 ) (*_SP_DEVICE_INTERFACE_DATA, error) {
 	var deviceInterfaceData _SP_DEVICE_INTERFACE_DATA
+
 	deviceInterfaceData.CbSize = uint32(unsafe.Sizeof(deviceInterfaceData))
 
 	r1, _, err := procSetupDiEnumDeviceInterfaces.Call(
@@ -183,6 +190,7 @@ func setupDiGetDeviceInstanceIdW(
 	devInfoData *_SP_DEVINFO_DATA,
 ) (string, error) {
 	var requiredSize uint32
+
 	r1, _, err := procSetupDiGetDeviceInstanceIdW.Call(
 		uintptr(deviceSetInfo),
 		uintptr(unsafe.Pointer(devInfoData)),
@@ -195,6 +203,7 @@ func setupDiGetDeviceInstanceIdW(
 	}
 
 	friendlyNameBuf := make([]uint16, requiredSize)
+
 	r1, _, err = procSetupDiGetDeviceInstanceIdW.Call(
 		uintptr(deviceSetInfo),
 		uintptr(unsafe.Pointer(devInfoData)),
@@ -218,6 +227,7 @@ func setupDiGetDeviceInterfaceDetailW(
 	err error,
 ) {
 	var requiredSize uint32
+
 	r1, _, err := procSetupDiGetDeviceInterfaceDetailW.Call(
 		uintptr(deviceInfoSet),
 		uintptr(unsafe.Pointer(deviceInterfaceData)),
@@ -261,6 +271,7 @@ func setupDiGetDevicePropertyW(
 	err error,
 ) {
 	var requiredSize uint32
+
 	r1, _, err := procSetupDiGetDevicePropertyW.Call(
 		uintptr(deviceInfoSet),
 		uintptr(unsafe.Pointer(deviceInfoData)),
@@ -278,6 +289,7 @@ func setupDiGetDevicePropertyW(
 	if requiredSize == 0 {
 		return 0, nil, errors.New("invalid RequiredSize was returned")
 	}
+
 	propertyBuffer = make([]byte, requiredSize)
 
 	r1, _, err = procSetupDiGetDevicePropertyW.Call(
@@ -347,8 +359,10 @@ func fillWindowsDeviceInfo(deviceInfo *DeviceInfo, hFile windows.Handle) error {
 	if err != nil {
 		return err
 	}
+
 	deviceInfo.UsagePage = caps.UsagePage
 	deviceInfo.Usage = caps.Usage
+
 	return nil
 }
 
@@ -357,6 +371,7 @@ func readWindowsString(handle windows.Handle, proc *windows.LazyProc) Descriptor
 	if err != nil {
 		return Descriptor[string]{Err: err}
 	}
+
 	return Descriptor[string]{Value: new(value)}
 }
 
@@ -416,7 +431,9 @@ func Enumerate(options ...EnumerateOption) iter.Seq2[*DeviceInfo, error] {
 				if errors.Is(err, windows.ERROR_NO_MORE_ITEMS) {
 					return
 				}
+
 				yield(nil, err)
+
 				return
 			}
 
@@ -466,6 +483,7 @@ func Enumerate(options ...EnumerateOption) iter.Seq2[*DeviceInfo, error] {
 				if metadataErr != nil && !yield(nil, metadataErr) {
 					return
 				}
+
 				continue
 			}
 
@@ -506,6 +524,7 @@ func OpenPath(path string, opts ...Option) (*Device, error) {
 	if err != nil {
 		return nil, err
 	}
+
 	closeOnError := true
 	defer func() {
 		if closeOnError {
@@ -525,6 +544,7 @@ func OpenPath(path string, opts ...Option) (*Device, error) {
 	if err != nil {
 		return nil, err
 	}
+
 	d.inputReportByteLength = caps.InputReportByteLength
 	d.outputReportByteLength = caps.OutputReportByteLength
 	d.featureReportByteLength = caps.FeatureReportByteLength
@@ -554,9 +574,11 @@ func (d *Device) Read(ctx context.Context, p []byte) (n int, err error) {
 	}
 
 	result := make(chan ioResult, 1)
+
 	go func() {
 		defer d.readMu.Unlock()
 		defer func() { _ = windows.Close(hEvent) }()
+
 		result <- d.read(overlapped)
 	}()
 
@@ -577,6 +599,7 @@ func (d *Device) Read(ctx context.Context, p []byte) (n int, err error) {
 
 func (d *Device) read(overlapped *windows.Overlapped) ioResult {
 	buf := make([]byte, d.inputReportByteLength)
+
 	var done uint32
 	if err := windowsReadFile(d.hFile, buf, &done, overlapped); err != nil {
 		if !errors.Is(err, windows.ERROR_IO_PENDING) {
@@ -588,9 +611,11 @@ func (d *Device) read(overlapped *windows.Overlapped) ioResult {
 	if err != nil {
 		return ioResult{err: err}
 	}
+
 	if event != windows.WAIT_OBJECT_0 {
 		_ = windowsCancelIoEx(d.hFile, overlapped)
 		_ = windowsGetOverlappedResult(d.hFile, overlapped, &done, true)
+
 		return ioResult{err: fmt.Errorf("unexpected event: %d", event)}
 	}
 
@@ -627,12 +652,15 @@ func (d *Device) Write(ctx context.Context, p []byte) (n int, err error) {
 		d.writeMu.Unlock()
 		return 0, err
 	}
+
 	overlapped := &windows.Overlapped{HEvent: hEvent}
 
 	result := make(chan ioResult, 1)
+
 	go func() {
 		defer d.writeMu.Unlock()
 		defer func() { _ = windows.Close(hEvent) }()
+
 		result <- d.write(buf, overlapped)
 	}()
 

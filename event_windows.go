@@ -60,6 +60,7 @@ func cmRegisterNotification(
 	}
 
 	var pNotifyContext windows.Handle
+
 	r1, _, err := procCMRegisterNotification.Call(
 		uintptr(unsafe.Pointer(pFilter)),
 		pContext,
@@ -70,6 +71,7 @@ func cmRegisterNotification(
 		if !errors.Is(err, windows.ERROR_SUCCESS) {
 			return 0, err
 		}
+
 		return 0, fmt.Errorf("CM_Register_Notification failed: CONFIGRET=0x%x", uint32(r1))
 	}
 
@@ -86,6 +88,7 @@ func cmUnregisterNotification(pNotifyContext windows.Handle) error {
 		if !errors.Is(err, windows.ERROR_SUCCESS) {
 			return err
 		}
+
 		return fmt.Errorf("CM_Unregister_Notification failed: CONFIGRET=0x%x", uint32(r1))
 	}
 
@@ -98,6 +101,7 @@ func cmSymbolicLinkFromEventData(data *_CM_NOTIFY_EVENT_DATA, eventDataSize uint
 	}
 
 	const wcharSize = uintptr(2)
+
 	offset := unsafe.Offsetof(_CM_NOTIFY_EVENT_DATA{}.SymbolicLink)
 	if eventDataSize <= offset {
 		return ""
@@ -109,6 +113,7 @@ func cmSymbolicLinkFromEventData(data *_CM_NOTIFY_EVENT_DATA, eventDataSize uint
 	}
 
 	ptr := (*uint16)(unsafe.Pointer(uintptr(unsafe.Pointer(data)) + offset))
+
 	return windows.UTF16ToString(unsafe.Slice(ptr, n))
 }
 
@@ -132,6 +137,7 @@ func (er *cmEventReceiver) onAction(action _CM_NOTIFY_ACTION, data *_CM_NOTIFY_E
 	if action != _CM_NOTIFY_ACTION_DEVICEINTERFACEARRIVAL && action != _CM_NOTIFY_ACTION_DEVICEINTERFACEREMOVAL {
 		return 0
 	}
+
 	if data == nil || data.FilterType != _CM_NOTIFY_FILTER_TYPE_DEVICEINTERFACE {
 		return 0
 	}
@@ -140,21 +146,26 @@ func (er *cmEventReceiver) onAction(action _CM_NOTIFY_ACTION, data *_CM_NOTIFY_E
 	if path == "" {
 		return 0
 	}
+
 	return er.onPathAction(action, path)
 }
 
 func (er *cmEventReceiver) onPathAction(action _CM_NOTIFY_ACTION, path string) uintptr {
 	er.mu.Lock()
 	defer er.mu.Unlock()
+
 	if er.closed {
 		return 0
 	}
 
 	typ := DeviceEventConnected
 	devInfo := &DeviceInfo{Path: path}
+
 	var devErr error
+
 	if action == _CM_NOTIFY_ACTION_DEVICEINTERFACEREMOVAL {
 		typ = DeviceEventDisconnected
+
 		if cached := er.devices[cmDevicePathKey(path)]; cached != nil {
 			devInfo = cached
 		}
@@ -173,12 +184,14 @@ func (er *cmEventReceiver) onPathAction(action _CM_NOTIFY_ACTION, path string) u
 	}
 
 	key := cmDevicePathKey(path)
+
 	switch typ {
 	case DeviceEventConnected:
 		er.devices[key] = devInfo
 	case DeviceEventDisconnected:
 		delete(er.devices, key)
 	}
+
 	er.events.Send(event)
 
 	return 0
@@ -220,6 +233,7 @@ func (er *cmEventReceiver) Close() error {
 		if er.notify != 0 {
 			er.closeErr = cmUnregisterNotification(er.notify)
 		}
+
 		er.events.Close()
 		cmReceivers.Delete(er.cbID)
 	})
@@ -245,6 +259,7 @@ func reconcileCMStartupEvents(snapshot []DeviceSnapshot, changes []DeviceEvent) 
 			ordered[key] = struct{}{}
 			order = append(order, key)
 		}
+
 		state[key] = event
 	}
 
@@ -272,12 +287,14 @@ func reconcileCMStartupEvents(snapshot []DeviceSnapshot, changes []DeviceEvent) 
 			events = append(events, event)
 		}
 	}
+
 	return events
 }
 
 func (er *cmEventReceiver) publishStartup(snapshot []DeviceSnapshot) {
 	er.mu.Lock()
 	defer er.mu.Unlock()
+
 	if er.closed {
 		return
 	}
@@ -290,6 +307,7 @@ func (er *cmEventReceiver) publishStartup(snapshot []DeviceSnapshot) {
 			MetadataErr: event.MetadataErr,
 		})
 	}
+
 	er.startupEvents = nil
 	er.initializing = false
 }
@@ -327,16 +345,20 @@ func Watch() (Watcher, error) {
 	receiver.notify = notify
 
 	var snapshot []DeviceSnapshot
+
 	for info, enumerateErr := range Enumerate() {
 		if info == nil {
 			closeErr := receiver.Close()
+
 			return nil, errors.Join(
 				fmt.Errorf("enumerate initial HID snapshot: %w", enumerateErr),
 				closeErr,
 			)
 		}
+
 		snapshot = append(snapshot, DeviceSnapshot{DeviceInfo: info, MetadataErr: enumerateErr})
 	}
+
 	receiver.publishStartup(snapshot)
 
 	return receiver, nil

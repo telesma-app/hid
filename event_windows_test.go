@@ -54,6 +54,7 @@ func TestReconcileCMStartupEvents(t *testing.T) {
 		!strings.EqualFold(got.DeviceInfo.Path, `\\?\hid#a`) || *got.DeviceInfo.ProductID.Value != 4 || !errors.Is(got.MetadataErr, callbackErr) {
 		t.Fatalf("first event = %#v, want the de-duplicated A snapshot entry", got)
 	}
+
 	if got := events[1]; got.Type != DeviceEventConnected || got.DeviceInfo == nil ||
 		!strings.EqualFold(got.DeviceInfo.Path, `\\?\hid#b`) || *got.DeviceInfo.ProductID.Value != 6 ||
 		!errors.Is(got.MetadataErr, callbackErr) {
@@ -64,6 +65,7 @@ func TestReconcileCMStartupEvents(t *testing.T) {
 		if event.DeviceInfo != nil && strings.EqualFold(event.DeviceInfo.Path, `\\?\hid#stale`) {
 			t.Fatalf("stale enumeration entry was resurrected: %#v", event)
 		}
+
 		if event.DeviceInfo != nil && strings.EqualFold(event.DeviceInfo.Path, `\\?\hid#new`) {
 			t.Fatalf("removed startup arrival was retained: %#v", event)
 		}
@@ -90,11 +92,13 @@ func TestCMRemovalUsesCachedDeviceInfo(t *testing.T) {
 	}
 
 	receiver.onPathAction(_CM_NOTIFY_ACTION_DEVICEINTERFACEREMOVAL, `\\?\HID#TOKEN`)
+
 	select {
 	case event := <-queue.Listen():
 		if event.Type != DeviceEventDisconnected {
 			t.Fatalf("event type = %q, want %q", event.Type, DeviceEventDisconnected)
 		}
+
 		if event.DeviceInfo == nil || event.DeviceInfo.UsagePage != 0xf1d0 ||
 			event.DeviceInfo.Usage != 1 || *event.DeviceInfo.ProductStr.Value != "Security Key" {
 			t.Fatalf("event info = %#v, want cached FIDO metadata", event.DeviceInfo)
@@ -106,6 +110,7 @@ func TestCMRemovalUsesCachedDeviceInfo(t *testing.T) {
 	// A repeated/unknown removal is still a native callback and must not be
 	// dropped; without cached metadata its callback path is the fallback.
 	receiver.onPathAction(_CM_NOTIFY_ACTION_DEVICEINTERFACEREMOVAL, `\\?\HID#TOKEN`)
+
 	select {
 	case event := <-queue.Listen():
 		if event.DeviceInfo == nil || event.DeviceInfo.Path != `\\?\HID#TOKEN` ||
@@ -130,11 +135,13 @@ func assertWatcherLifecycle(t *testing.T, newWatcher func() (Watcher, error)) {
 	if err := watcher.Close(); err != nil {
 		t.Fatalf("first close failed: %v", err)
 	}
+
 	if err := watcher.Close(); err != nil {
 		t.Fatalf("second close failed: %v", err)
 	}
 
 	deadline := time.After(2 * time.Second)
+
 	for {
 		select {
 		case _, ok := <-ch:
@@ -156,6 +163,7 @@ func waitForEvent(t *testing.T, ch <-chan DeviceEvent, wantType DeviceEventType,
 
 	deadline := time.After(timeout)
 	normalizedHint := strings.ToLower(pathHint)
+
 	for {
 		select {
 		case ev, ok := <-ch:
@@ -172,12 +180,14 @@ func waitForEvent(t *testing.T, ch <-chan DeviceEvent, wantType DeviceEventType,
 			if matched && normalizedHint != "" {
 				matched = strings.Contains(strings.ToLower(path), normalizedHint)
 			}
+
 			if !matched {
 				t.Logf("skip event type=%s path=%q err=%v", ev.Type, path, ev.MetadataErr)
 				continue
 			}
 
 			t.Logf("got event type=%s path=%q err=%v", ev.Type, path, ev.MetadataErr)
+
 			return ev
 		case <-deadline:
 			t.Fatalf("timeout waiting for %s event (hint=%q)", wantType, pathHint)
@@ -191,14 +201,17 @@ func TestEventManualDisconnectConnect(t *testing.T) {
 	}
 
 	pathHint := os.Getenv("HID_TEST_EVENT_HINT")
+
 	er, err := Watch()
 	if err != nil {
 		if strings.Contains(err.Error(), "CM_Register_Notification failed") {
 			t.Skipf("events backend unavailable in this environment: %v", err)
 		}
+
 		t.Fatal(err)
 	}
-	defer er.Close()
+
+	defer func() { _ = er.Close() }()
 
 	t.Logf("manual test started (hint=%q)", pathHint)
 
@@ -211,9 +224,11 @@ func TestEventManualDisconnectConnect(t *testing.T) {
 	if disc.DeviceInfo == nil || disc.DeviceInfo.Path == "" {
 		t.Fatal("disconnect event does not include device path")
 	}
+
 	if conn.DeviceInfo == nil || conn.DeviceInfo.Path == "" {
 		t.Fatal("connect event does not include device path")
 	}
+
 	if pathHint != "" && !strings.Contains(strings.ToLower(conn.DeviceInfo.Path), strings.ToLower(pathHint)) {
 		t.Fatalf("connect event path %q does not match hint %q", conn.DeviceInfo.Path, pathHint)
 	}

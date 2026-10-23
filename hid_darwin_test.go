@@ -17,24 +17,34 @@ import (
 
 func TestDarwinDescriptorAvailability(t *testing.T) {
 	original := ioHIDDeviceGetProperty
+
 	t.Cleanup(func() { ioHIDDeviceGetProperty = original })
+
 	ioHIDDeviceGetProperty = func(ioHIDDeviceRef, cfStringRef) cfTypeRef { return 0 }
+
 	if got := numberDescriptor(1, "VendorID"); got.Value != nil || got.Err != nil {
 		t.Fatalf("missing ID = %#v", got)
 	}
+
 	if got := stringDescriptor(1, "SerialNumber"); got.Value != nil || got.Err != nil {
 		t.Fatalf("missing serial = %#v", got)
 	}
+
 	zero := cfNumber(0)
 	defer cfRelease(cfTypeRef(zero))
+
 	ioHIDDeviceGetProperty = func(ioHIDDeviceRef, cfStringRef) cfTypeRef { return cfTypeRef(zero) }
+
 	if got := numberDescriptor(1, "VendorID"); got.Value == nil || *got.Value != 0 {
 		t.Fatalf("read zero ID = %#v", got)
 	}
+
 	for _, text := range []string{"", "Security Key ✓"} {
 		value := cfString(text)
 		defer cfRelease(cfTypeRef(value))
+
 		ioHIDDeviceGetProperty = func(ioHIDDeviceRef, cfStringRef) cfTypeRef { return cfTypeRef(value) }
+
 		if got := stringDescriptor(1, "SerialNumber"); got.Value == nil || *got.Value != text {
 			t.Fatalf("read serial = %#v, want %q", got, text)
 		}
@@ -48,15 +58,22 @@ func TestDarwinDescriptorConversionFailure(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer purego.Dlclose(library)
+	defer func() { _ = purego.Dlclose(library) }()
+
 	var createString func(cfAllocatorRef, *uint16, cfIndex) cfStringRef
 	purego.RegisterLibFunc(&createString, library, "CFStringCreateWithCharacters")
+
 	units := []uint16{0xd800}
+
 	value := createString(kCFAllocatorDefault, &units[0], cfIndex(len(units)))
 	defer cfRelease(cfTypeRef(value))
+
 	original := ioHIDDeviceGetProperty
+
 	t.Cleanup(func() { ioHIDDeviceGetProperty = original })
+
 	ioHIDDeviceGetProperty = func(ioHIDDeviceRef, cfStringRef) cfTypeRef { return cfTypeRef(value) }
+
 	got := stringDescriptor(1, "Product")
 	if got.Err == nil || got.Err.Error() == "" {
 		t.Fatalf("conversion failure = %#v", got)
@@ -145,6 +162,7 @@ func TestDeviceWriteFormatsReportID(t *testing.T) {
 			if gotID != tt.wantID {
 				t.Errorf("report ID = %d, want %d", gotID, tt.wantID)
 			}
+
 			if !slices.Equal(gotReport, tt.wantReport) {
 				t.Errorf("report = %v, want %v", gotReport, tt.wantReport)
 			}
@@ -154,6 +172,7 @@ func TestDeviceWriteFormatsReportID(t *testing.T) {
 
 func TestDeviceSendFeatureReportFormatsReportID(t *testing.T) {
 	original := ioHIDDeviceSetReport
+
 	t.Cleanup(func() {
 		ioHIDDeviceSetReport = original
 	})
@@ -165,7 +184,9 @@ func TestDeviceSendFeatureReportFormatsReportID(t *testing.T) {
 		data       []byte
 		length     cfIndex
 	}
+
 	var got nativeCall
+
 	ioHIDDeviceSetReport = func(device ioHIDDeviceRef, reportType ioHIDReportType, reportID cfIndex, data []byte, length cfIndex) ioReturn {
 		got = nativeCall{
 			device:     device,
@@ -174,6 +195,7 @@ func TestDeviceSendFeatureReportFormatsReportID(t *testing.T) {
 			data:       append([]byte(nil), data...),
 			length:     length,
 		}
+
 		return kIOReturnSuccess
 	}
 
@@ -204,23 +226,29 @@ func TestDeviceSendFeatureReportFormatsReportID(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			got = nativeCall{}
+
 			report := append([]byte(nil), tt.report...)
 
 			if err := device.SendFeatureReport(report); err != nil {
 				t.Fatal(err)
 			}
+
 			if got.device != ioHIDDeviceRef(0x1234) {
 				t.Errorf("device = %#x, want %#x", got.device, ioHIDDeviceRef(0x1234))
 			}
+
 			if got.reportType != kIOHIDReportTypeFeature {
 				t.Errorf("report type = %d, want %d", got.reportType, kIOHIDReportTypeFeature)
 			}
+
 			if got.reportID != tt.wantID {
 				t.Errorf("report ID = %d, want %d", got.reportID, tt.wantID)
 			}
+
 			if !slices.Equal(got.data, tt.wantData) {
 				t.Errorf("data = %v, want %v", got.data, tt.wantData)
 			}
+
 			if got.length != tt.wantLength {
 				t.Errorf("length = %d, want %d", got.length, tt.wantLength)
 			}
@@ -230,6 +258,7 @@ func TestDeviceSendFeatureReportFormatsReportID(t *testing.T) {
 
 func TestDeviceGetFeatureReportFormatsReportID(t *testing.T) {
 	original := ioHIDDeviceGetReport
+
 	t.Cleanup(func() {
 		ioHIDDeviceGetReport = original
 	})
@@ -241,11 +270,13 @@ func TestDeviceGetFeatureReportFormatsReportID(t *testing.T) {
 		dataLength   int
 		bufferLength cfIndex
 	}
+
 	var (
 		got      nativeCall
 		report   []byte
 		response []byte
 	)
+
 	ioHIDDeviceGetReport = func(device ioHIDDeviceRef, reportType ioHIDReportType, reportID cfIndex, data []byte, length *cfIndex) ioReturn {
 		got = nativeCall{
 			device:       device,
@@ -255,6 +286,7 @@ func TestDeviceGetFeatureReportFormatsReportID(t *testing.T) {
 			bufferLength: *length,
 		}
 		*length = cfIndex(copy(data, response))
+
 		return kIOReturnSuccess
 	}
 
@@ -291,6 +323,7 @@ func TestDeviceGetFeatureReportFormatsReportID(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			got = nativeCall{}
+
 			report = append([]byte(nil), tt.initial...)
 			response = tt.response
 
@@ -298,24 +331,31 @@ func TestDeviceGetFeatureReportFormatsReportID(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
+
 			if n != tt.wantN {
 				t.Errorf("GetFeatureReport() = %d bytes, want %d", n, tt.wantN)
 			}
+
 			if !slices.Equal(report, tt.wantReport) {
 				t.Errorf("report = %v, want %v", report, tt.wantReport)
 			}
+
 			if got.device != ioHIDDeviceRef(0x1234) {
 				t.Errorf("device = %#x, want %#x", got.device, ioHIDDeviceRef(0x1234))
 			}
+
 			if got.reportType != kIOHIDReportTypeFeature {
 				t.Errorf("report type = %d, want %d", got.reportType, kIOHIDReportTypeFeature)
 			}
+
 			if got.reportID != tt.wantID {
 				t.Errorf("report ID = %d, want %d", got.reportID, tt.wantID)
 			}
+
 			if got.dataLength != int(tt.wantBufferLength) {
 				t.Errorf("data length = %d, want %d", got.dataLength, tt.wantBufferLength)
 			}
+
 			if got.bufferLength != tt.wantBufferLength {
 				t.Errorf("buffer length = %d, want %d", got.bufferLength, tt.wantBufferLength)
 			}
@@ -325,6 +365,7 @@ func TestDeviceGetFeatureReportFormatsReportID(t *testing.T) {
 
 func TestDeviceWriteWorker(t *testing.T) {
 	original := ioHIDDeviceSetReport
+
 	t.Cleanup(func() {
 		ioHIDDeviceSetReport = original
 	})
@@ -333,6 +374,7 @@ func TestDeviceWriteWorker(t *testing.T) {
 		reportID cfIndex
 		data     []byte
 	}
+
 	calls := make(chan nativeCall, 3)
 	ioHIDDeviceSetReport = func(_ ioHIDDeviceRef, _ ioHIDReportType, reportID cfIndex, data []byte, _ cfIndex) ioReturn {
 		calls <- nativeCall{reportID: reportID, data: data}
@@ -349,6 +391,7 @@ func TestDeviceWriteWorker(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
+
 		if n != len(report) {
 			t.Fatalf("Write() = %d bytes, want %d", n, len(report))
 		}
@@ -358,10 +401,12 @@ func TestDeviceWriteWorker(t *testing.T) {
 	if first.reportID != 0 || !slices.Equal(first.data, []byte{1, 2, 3, 0}) {
 		t.Fatalf("first native call = id %d data %v", first.reportID, first.data)
 	}
+
 	second := <-calls
 	if second.reportID != 5 || !slices.Equal(second.data, []byte{5, 4, 3, 2}) {
 		t.Fatalf("second native call = id %d data %v", second.reportID, second.data)
 	}
+
 	third := <-calls
 	if third.reportID != 0 || !slices.Equal(third.data, []byte{6, 7, 8, 9}) {
 		t.Fatalf("third native call = id %d data %v", third.reportID, third.data)
@@ -370,11 +415,14 @@ func TestDeviceWriteWorker(t *testing.T) {
 
 func TestDeviceWriteNativeFailure(t *testing.T) {
 	original := ioHIDDeviceSetReport
+
 	t.Cleanup(func() { ioHIDDeviceSetReport = original })
+
 	ioHIDDeviceSetReport = func(ioHIDDeviceRef, ioHIDReportType, cfIndex, []byte, cfIndex) ioReturn {
 		return kIOReturnNotPermitted
 	}
 	device := newDarwinWriteTestDevice(t)
+
 	ctx, cancel := context.WithTimeout(t.Context(), time.Second)
 	defer cancel()
 
@@ -386,6 +434,7 @@ func TestDeviceWriteNativeFailure(t *testing.T) {
 
 func TestDeviceWriteCancellationLeavesWorkerUsable(t *testing.T) {
 	original := ioHIDDeviceSetReport
+
 	t.Cleanup(func() {
 		ioHIDDeviceSetReport = original
 	})
@@ -393,22 +442,29 @@ func TestDeviceWriteCancellationLeavesWorkerUsable(t *testing.T) {
 	entered := make(chan struct{})
 	nativeCtx, releaseNative := context.WithCancel(t.Context())
 	observed := make(chan []byte, 1)
+
 	var calls atomic.Int32
+
 	ioHIDDeviceSetReport = func(_ ioHIDDeviceRef, _ ioHIDReportType, _ cfIndex, data []byte, _ cfIndex) ioReturn {
 		if calls.Add(1) == 1 {
 			close(entered)
 			<-nativeCtx.Done()
+
 			observed <- slices.Clone(data)
 		}
+
 		return kIOReturnSuccess
 	}
 
 	device := newDarwinWriteTestDevice(t)
 	t.Cleanup(releaseNative)
+
 	ctx, cancel := context.WithCancel(context.Background())
 	t.Cleanup(cancel)
+
 	report := []byte{0, 1}
 	result := make(chan error, 1)
+
 	go func() {
 		_, err := device.Write(ctx, report)
 		result <- err
@@ -419,7 +475,9 @@ func TestDeviceWriteCancellationLeavesWorkerUsable(t *testing.T) {
 	case <-time.After(time.Second):
 		t.Fatal("native write did not start")
 	}
+
 	cancel()
+
 	select {
 	case err := <-result:
 		if !errors.Is(err, context.Canceled) {
@@ -431,6 +489,7 @@ func TestDeviceWriteCancellationLeavesWorkerUsable(t *testing.T) {
 
 	clear(report)
 	releaseNative()
+
 	select {
 	case got := <-observed:
 		if !slices.Equal(got, []byte{1, 0, 0, 0}) {
@@ -439,11 +498,14 @@ func TestDeviceWriteCancellationLeavesWorkerUsable(t *testing.T) {
 	case <-time.After(time.Second):
 		t.Fatal("native write did not finish after release")
 	}
+
 	writeCtx, cancelWrite := context.WithTimeout(t.Context(), time.Second)
 	defer cancelWrite()
+
 	if _, err := device.Write(writeCtx, []byte{0, 2}); err != nil {
 		t.Fatalf("second Write(): %v", err)
 	}
+
 	if got := calls.Load(); got != 2 {
 		t.Fatalf("native calls = %d, want 2", got)
 	}
@@ -451,6 +513,7 @@ func TestDeviceWriteCancellationLeavesWorkerUsable(t *testing.T) {
 
 func TestDeviceRemovalUnblocksReadAndWrite(t *testing.T) {
 	original := ioHIDDeviceSetReport
+
 	t.Cleanup(func() {
 		ioHIDDeviceSetReport = original
 	})
@@ -460,6 +523,7 @@ func TestDeviceRemovalUnblocksReadAndWrite(t *testing.T) {
 	ioHIDDeviceSetReport = func(_ ioHIDDeviceRef, _ ioHIDReportType, _ cfIndex, _ []byte, _ cfIndex) ioReturn {
 		close(writeStarted)
 		<-releaseWrite
+
 		return kIOReturnSuccess
 	}
 
@@ -478,10 +542,12 @@ func TestDeviceRemovalUnblocksReadAndWrite(t *testing.T) {
 	}()
 
 	writeResult := make(chan error, 1)
+
 	go func() {
 		_, err := device.Write(context.Background(), []byte{0, 1})
 		writeResult <- err
 	}()
+
 	<-writeStarted
 
 	deviceRemovalCallback(device.cbID, kIOReturnSuccess, 0)
@@ -489,6 +555,7 @@ func TestDeviceRemovalUnblocksReadAndWrite(t *testing.T) {
 	if err := <-readResult; !errors.Is(err, errDarwinDeviceRemoved) {
 		t.Fatalf("Read() error = %v, want %v", err, errDarwinDeviceRemoved)
 	}
+
 	if err := <-writeResult; !errors.Is(err, errDarwinDeviceRemoved) {
 		t.Fatalf("Write() error = %v, want %v", err, errDarwinDeviceRemoved)
 	}
@@ -499,6 +566,7 @@ func TestDeviceRemovalUnblocksReadAndWrite(t *testing.T) {
 func TestDeviceReadPrefersRemovalAfterReportsClose(t *testing.T) {
 	reports := make(chan []byte)
 	close(reports)
+
 	removed := make(chan struct{})
 	close(removed)
 	device := &Device{
@@ -532,6 +600,7 @@ func newDarwinWriteTestDevice(t *testing.T) *Device {
 		default:
 			close(device.closing)
 		}
+
 		<-device.writeStopped
 	})
 

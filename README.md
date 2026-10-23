@@ -134,6 +134,14 @@ CGO_ENABLED=0 go test ./...
 go vet ./...
 ```
 
+## Linting
+
+With [golangci-lint v2](https://golangci-lint.run/docs/welcome/install/) installed:
+
+```sh
+golangci-lint run ./...
+```
+
 ## License
 
 Licensed under the [Apache License 2.0](LICENSE).

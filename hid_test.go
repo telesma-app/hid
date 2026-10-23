@@ -39,6 +39,7 @@ func TestCTAPHID(t *testing.T) {
 		if errors.Is(err, os.ErrNotExist) || errors.Is(err, os.ErrPermission) {
 			continue
 		}
+
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -63,6 +64,7 @@ func TestCTAPHID(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
+
 		if runtime.GOOS == "windows" {
 			if n != 65 {
 				t.Fatalf("Write() = %d bytes, want 65", n)
@@ -74,10 +76,12 @@ func TestCTAPHID(t *testing.T) {
 		}
 
 		resp := make([]byte, 64)
+
 		n, err = device.Read(context.Background(), resp)
 		if err != nil {
 			t.Fatal(err)
 		}
+
 		if n != 64 {
 			t.Fatalf("Read() = %d bytes, want 64", n)
 		}
@@ -106,6 +110,7 @@ func TestCTAPHID(t *testing.T) {
 
 		var channel [4]byte
 		copy(channel[:], resp[15:19])
+
 		for i := 0; i < pings; i++ {
 			payload := make([]byte, 8)
 			binary.BigEndian.PutUint64(payload, uint64(i))
@@ -121,6 +126,7 @@ func TestCTAPHID(t *testing.T) {
 			if err != nil {
 				t.Fatalf("ping %d write: %v", i, err)
 			}
+
 			if runtime.GOOS == "windows" {
 				if n != 65 {
 					t.Fatalf("ping %d Write() = %d bytes, want 65", i, n)
@@ -133,9 +139,11 @@ func TestCTAPHID(t *testing.T) {
 			if err != nil {
 				t.Fatalf("ping %d read: %v", i, err)
 			}
+
 			if n != 64 {
 				t.Fatalf("ping %d Read() = %d bytes, want 64", i, n)
 			}
+
 			if !slices.Equal(resp[:7], request[1:8]) || !slices.Equal(resp[7:15], payload) {
 				t.Fatalf("ping %d response = %x", i, resp[:15])
 			}

@@ -17,3 +17,9 @@ type Device struct {
 	closeOnce               sync.Once
 	closeErr                error
 }
+
+type ioResult struct {
+	n    int
+	data []byte
+	err  error
+}

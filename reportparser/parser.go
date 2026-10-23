@@ -84,5 +84,6 @@ func parseUintValue(size ItemSize, buf []byte) uint32 {
 	case ItemSize32:
 		return binary.LittleEndian.Uint32(buf)
 	}
+
 	return 0
 }

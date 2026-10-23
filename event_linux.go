@@ -57,6 +57,7 @@ func (er *linuxEventReceiver) Close() error {
 	er.closeOnce.Do(func() {
 		er.mu.Lock()
 		wasClosed := er.closed
+
 		er.closed = true
 		if !wasClosed {
 			if err := signalLinuxEventFD(er.wakeFD); err != nil {
@@ -70,12 +71,14 @@ func (er *linuxEventReceiver) Close() error {
 
 	er.mu.Lock()
 	defer er.mu.Unlock()
+
 	return errors.Join(er.runErr, er.closeErr)
 }
 
 func signalLinuxEventFD(fd int) error {
 	var wake [8]byte
 	binary.NativeEndian.PutUint64(wake[:], 1)
+
 	for {
 		n, err := unix.Write(fd, wake[:])
 		switch {
@@ -105,9 +108,11 @@ func (er *linuxEventReceiver) run() {
 	if err := unix.Close(er.socketFD); err != nil {
 		closeErr = errors.Join(closeErr, fmt.Errorf("close Linux uevent socket: %w", err))
 	}
+
 	if err := unix.Close(er.wakeFD); err != nil {
 		closeErr = errors.Join(closeErr, fmt.Errorf("close Linux HID event wake descriptor: %w", err))
 	}
+
 	er.closeErr = errors.Join(er.closeErr, closeErr)
 	er.mu.Unlock()
 
@@ -128,11 +133,13 @@ func (er *linuxEventReceiver) readUevents() error {
 		}
 
 		pollFDs[0].Revents = 0
+
 		pollFDs[1].Revents = 0
 		if _, err := unix.Poll(pollFDs, -1); err != nil {
 			if errors.Is(err, unix.EINTR) {
 				continue
 			}
+
 			return fmt.Errorf("poll Linux HID uevents: %w", err)
 		}
 
@@ -146,8 +153,9 @@ func (er *linuxEventReceiver) readUevents() error {
 				return err
 			}
 		}
+
 		if socketEvents&(unix.POLLHUP|unix.POLLNVAL) != 0 {
-			return fmt.Errorf("Linux HID uevent socket poll failure: revents=0x%x", uint16(socketEvents))
+			return fmt.Errorf("poll Linux HID uevent socket: revents=0x%x", uint16(socketEvents))
 		}
 	}
 }
@@ -172,9 +180,11 @@ func (er *linuxEventReceiver) drainUevents(message []byte) error {
 				return fmt.Errorf("receive Linux HID uevent: %w", err)
 			}
 		}
+
 		if flags&unix.MSG_TRUNC != 0 {
 			return errors.New("receive Linux HID uevent: message was truncated")
 		}
+
 		if n == 0 || !isKernelUeventSender(sender) {
 			continue
 		}
@@ -191,6 +201,7 @@ func (er *linuxEventReceiver) drainUevents(message []byte) error {
 func (er *linuxEventReceiver) isClosed() bool {
 	er.mu.Lock()
 	defer er.mu.Unlock()
+
 	return er.closed
 }
 
@@ -201,9 +212,13 @@ func isKernelUeventSender(sender unix.Sockaddr) bool {
 
 func parseLinuxUevent(message []byte) (linuxUevent, bool) {
 	var action string
+
 	var headerAction string
+
 	var subsystem string
+
 	var device string
+
 	var devicePath string
 
 	for index, field := range strings.Split(string(message), "\x00") {
@@ -216,6 +231,7 @@ func parseLinuxUevent(message []byte) (linuxUevent, bool) {
 			if index == 0 {
 				headerAction, _, _ = strings.Cut(field, "@")
 			}
+
 			continue
 		}
 
@@ -234,9 +250,11 @@ func parseLinuxUevent(message []byte) (linuxUevent, bool) {
 	if action == "" {
 		action = headerAction
 	}
+
 	if subsystem != "hidraw" {
 		return linuxUevent{}, false
 	}
+
 	if device == "" && devicePath != "" {
 		if slash := strings.LastIndexByte(devicePath, '/'); slash >= 0 {
 			device = devicePath[slash+1:]
@@ -244,6 +262,7 @@ func parseLinuxUevent(message []byte) (linuxUevent, bool) {
 			device = devicePath
 		}
 	}
+
 	if !isLinuxHIDRawName(device) {
 		return linuxUevent{}, false
 	}
@@ -263,11 +282,13 @@ func isLinuxHIDRawName(name string) bool {
 	if !strings.HasPrefix(name, prefix) || len(name) == len(prefix) {
 		return false
 	}
+
 	for _, char := range name[len(prefix):] {
 		if char < '0' || char > '9' {
 			return false
 		}
 	}
+
 	return true
 }
 
@@ -283,19 +304,23 @@ func (er *linuxEventReceiver) onUevent(uevent linuxUevent) {
 		er.mu.Unlock()
 		return
 	}
+
 	if uevent.eventType == DeviceEventDisconnected {
 		info := er.devices[path]
 		if info == nil {
 			info = &DeviceInfo{Path: path}
 		}
+
 		event := DeviceEvent{
 			Type:       DeviceEventDisconnected,
 			DeviceInfo: info,
 		}
 		er.publishOrStageLocked(event)
 		er.mu.Unlock()
+
 		return
 	}
+
 	if !er.initializing {
 		if _, exists := er.devices[path]; exists {
 			er.mu.Unlock()
@@ -311,14 +336,17 @@ func (er *linuxEventReceiver) onUevent(uevent linuxUevent) {
 
 	er.mu.Lock()
 	defer er.mu.Unlock()
+
 	if er.closed {
 		return
 	}
+
 	if !er.initializing {
 		if _, exists := er.devices[path]; exists {
 			return
 		}
 	}
+
 	er.publishOrStageLocked(DeviceEvent{
 		Type:        DeviceEventConnected,
 		DeviceInfo:  info,
@@ -339,6 +367,7 @@ func (er *linuxEventReceiver) publishOrStageLocked(event DeviceEvent) {
 	case DeviceEventDisconnected:
 		delete(er.devices, path)
 	}
+
 	er.events.Send(event)
 }
 
@@ -353,12 +382,14 @@ func reconcileLinuxStartupEvents(snapshot, changes []DeviceEvent) []DeviceEvent 
 			ordered[path] = struct{}{}
 			order = append(order, path)
 		}
+
 		state[path] = event
 	}
 
 	for _, event := range snapshot {
 		put(event)
 	}
+
 	for _, event := range changes {
 		switch event.Type {
 		case DeviceEventConnected:
@@ -374,12 +405,14 @@ func reconcileLinuxStartupEvents(snapshot, changes []DeviceEvent) []DeviceEvent 
 			events = append(events, event)
 		}
 	}
+
 	return events
 }
 
 func (er *linuxEventReceiver) publishStartup(snapshot []DeviceEvent) {
 	er.mu.Lock()
 	defer er.mu.Unlock()
+
 	if er.closed {
 		return
 	}
@@ -391,6 +424,7 @@ func (er *linuxEventReceiver) publishStartup(snapshot []DeviceEvent) {
 			MetadataErr: event.MetadataErr,
 		})
 	}
+
 	er.startupEvents = nil
 	er.initializing = false
 }
@@ -400,6 +434,7 @@ func linuxInitialEventSnapshot() ([]DeviceEvent, error) {
 	if errors.Is(err, os.ErrNotExist) {
 		return nil, nil
 	}
+
 	if err != nil {
 		return nil, err
 	}
@@ -411,16 +446,19 @@ func linuxInitialEventSnapshot() ([]DeviceEvent, error) {
 		}
 
 		path := linuxHIDRawPath(name)
+
 		info, infoErr := getLinuxDeviceInfo(name)
 		if infoErr != nil {
 			infoErr = fmt.Errorf("read HID metadata for %s: %w", path, infoErr)
 		}
+
 		events = append(events, DeviceEvent{
 			Type:        DeviceEventConnected,
 			DeviceInfo:  info,
 			MetadataErr: infoErr,
 		})
 	}
+
 	return events, nil
 }
 
@@ -443,12 +481,14 @@ func openLinuxUeventSocket() (socketFD int, wakeFD int, err error) {
 		_ = unix.Close(socketFD)
 		return -1, -1, fmt.Errorf("open Linux HID event wake descriptor: %w", err)
 	}
+
 	if err := unix.Bind(socketFD, &unix.SockaddrNetlink{
 		Family: unix.AF_NETLINK,
 		Groups: linuxUeventGroup,
 	}); err != nil {
 		_ = unix.Close(wakeFD)
 		_ = unix.Close(socketFD)
+
 		return -1, -1, fmt.Errorf("bind Linux uevent socket: %w", err)
 	}
 
@@ -479,11 +519,13 @@ func Watch() (Watcher, error) {
 		closeErr := receiver.Close()
 		return nil, errors.Join(fmt.Errorf("enumerate initial HID snapshot: %w", err), closeErr)
 	}
+
 	receiver.publishStartup(snapshot)
 
 	receiver.mu.Lock()
 	runErr := receiver.runErr
 	receiver.mu.Unlock()
+
 	if runErr != nil {
 		return nil, receiver.Close()
 	}

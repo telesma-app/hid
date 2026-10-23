@@ -19,6 +19,7 @@ func TestDeviceReadCancellationLeavesReadUsable(t *testing.T) {
 	if err := unix.Pipe2(pipe[:], unix.O_CLOEXEC|unix.O_NONBLOCK); err != nil {
 		t.Fatal(err)
 	}
+
 	device := &Device{file: os.NewFile(uintptr(pipe[0]), "test pipe")}
 	defer func() {
 		_ = device.Close()
@@ -26,6 +27,7 @@ func TestDeviceReadCancellationLeavesReadUsable(t *testing.T) {
 	}()
 
 	ctx, cancel := context.WithCancel(context.Background())
+
 	done := make(chan error, 1)
 	go func() {
 		_, err := device.Read(ctx, make([]byte, 1))
@@ -33,6 +35,7 @@ func TestDeviceReadCancellationLeavesReadUsable(t *testing.T) {
 	}()
 
 	cancel()
+
 	select {
 	case err := <-done:
 		if !errors.Is(err, context.Canceled) {
@@ -45,13 +48,17 @@ func TestDeviceReadCancellationLeavesReadUsable(t *testing.T) {
 	if _, err := unix.Write(pipe[1], []byte{1}); err != nil {
 		t.Fatal(err)
 	}
+
 	readCtx, cancelRead := context.WithTimeout(context.Background(), time.Second)
 	defer cancelRead()
+
 	buffer := make([]byte, 1)
+
 	n, err := device.Read(readCtx, buffer)
 	if err != nil {
 		t.Fatal(err)
 	}
+
 	if n != 1 || buffer[0] != 1 {
 		t.Fatalf("Read() = %d bytes %v, want [1]", n, buffer)
 	}
@@ -59,12 +66,14 @@ func TestDeviceReadCancellationLeavesReadUsable(t *testing.T) {
 
 func TestRunIOSuccess(t *testing.T) {
 	var mu sync.Mutex
+
 	result := runIO(context.Background(), &mu, func() ioResult {
 		return ioResult{n: 3}
 	})
 	if result.err != nil {
 		t.Fatal(result.err)
 	}
+
 	if result.n != 3 {
 		t.Fatalf("result = %d bytes, want 3", result.n)
 	}
@@ -72,21 +81,25 @@ func TestRunIOSuccess(t *testing.T) {
 
 func TestRunIOCancellationReturnsPromptly(t *testing.T) {
 	var mu sync.Mutex
+
 	started := make(chan struct{})
 	release := make(chan struct{})
 
 	ctx, cancel := context.WithCancel(context.Background())
+
 	done := make(chan ioResult, 1)
 	go func() {
 		done <- runIO(ctx, &mu, func() ioResult {
 			close(started)
 			<-release
+
 			return ioResult{}
 		})
 	}()
 
 	<-started
 	cancel()
+
 	select {
 	case result := <-done:
 		if !errors.Is(result.err, context.Canceled) {
@@ -101,7 +114,9 @@ func TestRunIOCancellationReturnsPromptly(t *testing.T) {
 
 func TestRunIODeadlineExceeded(t *testing.T) {
 	var mu sync.Mutex
+
 	release := make(chan struct{})
+
 	ctx, cancel := context.WithTimeout(context.Background(), time.Millisecond)
 	defer cancel()
 
@@ -112,15 +127,19 @@ func TestRunIODeadlineExceeded(t *testing.T) {
 	if !errors.Is(result.err, context.DeadlineExceeded) {
 		t.Fatalf("error = %v, want context.DeadlineExceeded", result.err)
 	}
+
 	close(release)
 }
 
 func TestRunIODoesNotStartAfterCancellationWhileQueued(t *testing.T) {
 	var mu sync.Mutex
+
 	var calls atomic.Int32
+
 	mu.Lock()
 
 	ctx, cancel := context.WithCancel(context.Background())
+
 	done := make(chan ioResult, 1)
 	go func() {
 		done <- runIO(ctx, &mu, func() ioResult {
@@ -131,10 +150,12 @@ func TestRunIODoesNotStartAfterCancellationWhileQueued(t *testing.T) {
 
 	cancel()
 	mu.Unlock()
+
 	result := <-done
 	if !errors.Is(result.err, context.Canceled) {
 		t.Fatalf("error = %v, want context.Canceled", result.err)
 	}
+
 	if calls.Load() != 0 {
 		t.Fatal("operation started after cancellation while queued")
 	}

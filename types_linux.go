@@ -10,3 +10,8 @@ type Device struct {
 	readMu  sync.Mutex
 	writeMu sync.Mutex
 }
+
+type ioResult struct {
+	n   int
+	err error
+}

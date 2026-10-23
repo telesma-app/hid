@@ -27,9 +27,11 @@ func waitLinuxReadable(ctx context.Context, fd int) error {
 		if errors.Is(err, unix.EINTR) {
 			continue
 		}
+
 		if err != nil {
 			return err
 		}
+
 		if ready > 0 {
 			return nil
 		}
@@ -48,8 +50,10 @@ func runIO(ctx context.Context, mu *sync.Mutex, operation func() ioResult) ioRes
 	}
 
 	result := make(chan ioResult, 1)
+
 	go func() {
 		defer mu.Unlock()
+
 		result <- operation()
 	}()
 
