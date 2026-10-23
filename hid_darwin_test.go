@@ -5,9 +5,11 @@ package hid
 import (
 	"context"
 	"errors"
+	"os"
 	"slices"
 	"sync/atomic"
 	"testing"
+	"time"
 	"unsafe"
 
 	"github.com/ebitengine/purego"
@@ -113,6 +115,24 @@ func TestDeviceWriteFormatsReportID(t *testing.T) {
 		{
 			name:       "numbered report",
 			input:      []byte{5, 1, 2, 3},
+			wantID:     5,
+			wantReport: []byte{5, 1, 2, 3},
+		},
+		{
+			name:       "short unnumbered report is padded",
+			input:      []byte{0, 1, 2},
+			wantID:     0,
+			wantReport: []byte{1, 2, 0, 0},
+		},
+		{
+			name:       "long unnumbered report is truncated",
+			input:      []byte{0, 1, 2, 3, 4, 5},
+			wantID:     0,
+			wantReport: []byte{1, 2, 3, 4},
+		},
+		{
+			name:       "long numbered report is truncated",
+			input:      []byte{5, 1, 2, 3, 4},
 			wantID:     5,
 			wantReport: []byte{5, 1, 2, 3},
 		},
@@ -313,7 +333,7 @@ func TestDeviceWriteWorker(t *testing.T) {
 		reportID cfIndex
 		data     []byte
 	}
-	calls := make(chan nativeCall, 2)
+	calls := make(chan nativeCall, 3)
 	ioHIDDeviceSetReport = func(_ ioHIDDeviceRef, _ ioHIDReportType, reportID cfIndex, data []byte, _ cfIndex) ioReturn {
 		calls <- nativeCall{reportID: reportID, data: data}
 		return kIOReturnSuccess
@@ -323,6 +343,7 @@ func TestDeviceWriteWorker(t *testing.T) {
 	for _, report := range [][]byte{
 		{0, 1, 2, 3},
 		{5, 4, 3, 2},
+		{0, 6, 7, 8, 9, 10},
 	} {
 		n, err := device.Write(context.Background(), report)
 		if err != nil {
@@ -341,6 +362,26 @@ func TestDeviceWriteWorker(t *testing.T) {
 	if second.reportID != 5 || !slices.Equal(second.data, []byte{5, 4, 3, 2}) {
 		t.Fatalf("second native call = id %d data %v", second.reportID, second.data)
 	}
+	third := <-calls
+	if third.reportID != 0 || !slices.Equal(third.data, []byte{6, 7, 8, 9}) {
+		t.Fatalf("third native call = id %d data %v", third.reportID, third.data)
+	}
+}
+
+func TestDeviceWriteNativeFailure(t *testing.T) {
+	original := ioHIDDeviceSetReport
+	t.Cleanup(func() { ioHIDDeviceSetReport = original })
+	ioHIDDeviceSetReport = func(ioHIDDeviceRef, ioHIDReportType, cfIndex, []byte, cfIndex) ioReturn {
+		return kIOReturnNotPermitted
+	}
+	device := newDarwinWriteTestDevice(t)
+	ctx, cancel := context.WithTimeout(t.Context(), time.Second)
+	defer cancel()
+
+	n, err := device.Write(ctx, []byte{0, 1})
+	if n != 0 || !errors.Is(err, os.ErrPermission) {
+		t.Fatalf("Write() = %d, %v, want 0, os.ErrPermission", n, err)
+	}
 }
 
 func TestDeviceWriteCancellationLeavesWorkerUsable(t *testing.T) {
@@ -350,32 +391,57 @@ func TestDeviceWriteCancellationLeavesWorkerUsable(t *testing.T) {
 	})
 
 	entered := make(chan struct{})
-	release := make(chan struct{})
+	nativeCtx, releaseNative := context.WithCancel(t.Context())
+	observed := make(chan []byte, 1)
 	var calls atomic.Int32
-	ioHIDDeviceSetReport = func(_ ioHIDDeviceRef, _ ioHIDReportType, _ cfIndex, _ []byte, _ cfIndex) ioReturn {
+	ioHIDDeviceSetReport = func(_ ioHIDDeviceRef, _ ioHIDReportType, _ cfIndex, data []byte, _ cfIndex) ioReturn {
 		if calls.Add(1) == 1 {
 			close(entered)
-			<-release
+			<-nativeCtx.Done()
+			observed <- slices.Clone(data)
 		}
 		return kIOReturnSuccess
 	}
 
 	device := newDarwinWriteTestDevice(t)
+	t.Cleanup(releaseNative)
 	ctx, cancel := context.WithCancel(context.Background())
+	t.Cleanup(cancel)
+	report := []byte{0, 1}
 	result := make(chan error, 1)
 	go func() {
-		_, err := device.Write(ctx, []byte{0, 1})
+		_, err := device.Write(ctx, report)
 		result <- err
 	}()
 
-	<-entered
+	select {
+	case <-entered:
+	case <-time.After(time.Second):
+		t.Fatal("native write did not start")
+	}
 	cancel()
-	if err := <-result; !errors.Is(err, context.Canceled) {
-		t.Fatalf("Write() error = %v, want context.Canceled", err)
+	select {
+	case err := <-result:
+		if !errors.Is(err, context.Canceled) {
+			t.Fatalf("Write() error = %v, want context.Canceled", err)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("Write did not return after cancellation")
 	}
 
-	close(release)
-	if _, err := device.Write(context.Background(), []byte{0, 2}); err != nil {
+	clear(report)
+	releaseNative()
+	select {
+	case got := <-observed:
+		if !slices.Equal(got, []byte{1, 0, 0, 0}) {
+			t.Fatalf("in-flight native buffer = %v, want [1 0 0 0]", got)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("native write did not finish after release")
+	}
+	writeCtx, cancelWrite := context.WithTimeout(t.Context(), time.Second)
+	defer cancelWrite()
+	if _, err := device.Write(writeCtx, []byte{0, 2}); err != nil {
 		t.Fatalf("second Write(): %v", err)
 	}
 	if got := calls.Load(); got != 2 {

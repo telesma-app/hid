@@ -68,8 +68,9 @@ var (
 var errDarwinDeviceRemoved = errors.New("HID device removed")
 
 type darwinWriteRequest struct {
-	report []byte
-	result chan ioResult
+	reportID cfIndex
+	report   []byte
+	result   chan error
 }
 
 func init() {
@@ -237,9 +238,11 @@ func (d *Device) Write(ctx context.Context, p []byte) (int, error) {
 		return 0, err
 	}
 
+	reportID, report := prepareOutputReport(p, d.outputReportByteLength)
 	request := darwinWriteRequest{
-		report: bytes.Clone(p),
-		result: make(chan ioResult, 1),
+		reportID: reportID,
+		report:   report,
+		result:   make(chan error, 1),
 	}
 	select {
 	case <-ctx.Done():
@@ -258,8 +261,11 @@ func (d *Device) Write(ctx context.Context, p []byte) (int, error) {
 		return 0, errors.New("device closed")
 	case <-d.removed:
 		return 0, errDarwinDeviceRemoved
-	case result := <-request.result:
-		return result.n, result.err
+	case err := <-request.result:
+		if err != nil {
+			return 0, err
+		}
+		return len(p), nil
 	}
 }
 
@@ -277,28 +283,27 @@ func (d *Device) runWrites() {
 		case request := <-d.writes:
 			select {
 			case <-d.closing:
-				request.result <- ioResult{err: errors.New("device closed")}
+				request.result <- errors.New("device closed")
 				return
 			case <-d.removed:
-				request.result <- ioResult{err: errDarwinDeviceRemoved}
+				request.result <- errDarwinDeviceRemoved
 				return
 			default:
 			}
 
-			reportID, report := prepareOutputReport(request.report, d.outputReportByteLength)
 			ret := ioHIDDeviceSetReport(
 				d.device,
 				kIOHIDReportTypeOutput,
-				reportID,
-				report,
-				cfIndex(len(report)),
+				request.reportID,
+				request.report,
+				cfIndex(len(request.report)),
 			)
 			if ret != kIOReturnSuccess {
-				request.result <- ioResult{err: ioReturnError("IOHIDDeviceSetReport", ret)}
+				request.result <- ioReturnError("IOHIDDeviceSetReport", ret)
 				continue
 			}
 
-			request.result <- ioResult{n: len(request.report)}
+			request.result <- nil
 		}
 	}
 }
@@ -357,9 +362,6 @@ func prepareIOHIDReport(report []byte) (cfIndex, []byte) {
 func prepareOutputReport(p []byte, reportByteLength int) (cfIndex, []byte) {
 	reportID, input := prepareIOHIDReport(p)
 	report := make([]byte, reportByteLength)
-	if len(input) > len(report) {
-		input = input[:len(report)]
-	}
 	copy(report, input)
 
 	return reportID, report

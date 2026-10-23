@@ -102,3 +102,17 @@ func TestSysfsIDFailurePreservesOtherObservations(t *testing.T) {
 		t.Fatalf("uevent failure affected unread USB strings: %#v", info)
 	}
 }
+
+func TestSysfsMissingDevicePreservesPath(t *testing.T) {
+	info, err := readLinuxDeviceInfo("/dev/hidraw9", t.TempDir())
+	if !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("readLinuxDeviceInfo error = %v, want os.ErrNotExist", err)
+	}
+	if info == nil || info.Path != "/dev/hidraw9" {
+		t.Fatalf("device info = %#v, want the requested path", info)
+	}
+	if !errors.Is(info.VendorID.Err, os.ErrNotExist) || !errors.Is(info.ProductID.Err, os.ErrNotExist) ||
+		!errors.Is(info.HIDName.Err, os.ErrNotExist) || !errors.Is(info.HIDUnique.Err, os.ErrNotExist) {
+		t.Fatalf("missing device lost descriptor errors: %#v", info)
+	}
+}

@@ -126,9 +126,7 @@ func WithParentDeviceID(parentDeviceID string) EnumerateOption {
 func newEnumerateOptions(options []EnumerateOption) enumerateOptions {
 	var opts enumerateOptions
 	for _, option := range options {
-		if option != nil {
-			option(&opts)
-		}
+		option(&opts)
 	}
 	return opts
 }

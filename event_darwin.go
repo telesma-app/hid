@@ -213,11 +213,7 @@ func darwinDeviceMatchingCallback(context uintptr, result ioReturn, _ uintptr, d
 	if !ok {
 		return
 	}
-	receiver, ok := value.(*darwinEventReceiver)
-	if !ok {
-		return
-	}
-	receiver.deviceConnected(result, device)
+	value.(*darwinEventReceiver).deviceConnected(result, device)
 }
 
 func darwinDeviceRemovalCallback(context uintptr, result ioReturn, _ uintptr, device ioHIDDeviceRef) {
@@ -225,11 +221,7 @@ func darwinDeviceRemovalCallback(context uintptr, result ioReturn, _ uintptr, de
 	if !ok {
 		return
 	}
-	receiver, ok := value.(*darwinEventReceiver)
-	if !ok {
-		return
-	}
-	receiver.deviceDisconnected(result, device)
+	value.(*darwinEventReceiver).deviceDisconnected(result, device)
 }
 
 // Watch captures the current HID snapshot and then publishes later connection

@@ -30,6 +30,7 @@ type linuxEventReceiver struct {
 	wakeFD   int
 	stopped  chan struct{}
 
+	// Like getLinuxDeviceInfo, returns partial metadata even on error.
 	loadDeviceInfo func(string) (*DeviceInfo, error)
 
 	mu            sync.Mutex
@@ -58,8 +59,8 @@ func (er *linuxEventReceiver) Close() error {
 		wasClosed := er.closed
 		er.closed = true
 		if !wasClosed {
-			if err := signalLinuxEventFD(er.wakeFD); err != nil && !errors.Is(err, unix.EBADF) {
-				er.closeErr = errors.Join(er.closeErr, fmt.Errorf("wake Linux HID event receiver: %w", err))
+			if err := signalLinuxEventFD(er.wakeFD); err != nil {
+				er.closeErr = fmt.Errorf("wake Linux HID event receiver: %w", err)
 			}
 		}
 		er.mu.Unlock()
@@ -97,16 +98,14 @@ func (er *linuxEventReceiver) run() {
 	runErr := er.readUevents()
 
 	er.mu.Lock()
-	if runErr != nil {
-		er.runErr = errors.Join(er.runErr, runErr)
-	}
+	er.runErr = runErr
 	er.closed = true
 
 	var closeErr error
-	if err := unix.Close(er.socketFD); err != nil && !errors.Is(err, unix.EBADF) {
+	if err := unix.Close(er.socketFD); err != nil {
 		closeErr = errors.Join(closeErr, fmt.Errorf("close Linux uevent socket: %w", err))
 	}
-	if err := unix.Close(er.wakeFD); err != nil && !errors.Is(err, unix.EBADF) {
+	if err := unix.Close(er.wakeFD); err != nil {
 		closeErr = errors.Join(closeErr, fmt.Errorf("close Linux HID event wake descriptor: %w", err))
 	}
 	er.closeErr = errors.Join(er.closeErr, closeErr)
@@ -277,10 +276,6 @@ func linuxHIDRawPath(name string) string {
 }
 
 func (er *linuxEventReceiver) onUevent(uevent linuxUevent) {
-	if !isLinuxHIDRawName(uevent.device) ||
-		(uevent.eventType != DeviceEventConnected && uevent.eventType != DeviceEventDisconnected) {
-		return
-	}
 	path := linuxHIDRawPath(uevent.device)
 
 	er.mu.Lock()
@@ -307,21 +302,12 @@ func (er *linuxEventReceiver) onUevent(uevent linuxUevent) {
 			return
 		}
 	}
-	loadDeviceInfo := er.loadDeviceInfo
 	er.mu.Unlock()
 
-	info := &DeviceInfo{Path: path}
-	var eventErr error
-	if loadDeviceInfo != nil {
-		loaded, err := loadDeviceInfo(uevent.device)
-		if loaded != nil {
-			info = loaded
-		}
-		if err != nil {
-			eventErr = fmt.Errorf("read HID metadata for %s: %w", path, err)
-		}
+	info, eventErr := er.loadDeviceInfo(uevent.device)
+	if eventErr != nil {
+		eventErr = fmt.Errorf("read HID metadata for %s: %w", path, eventErr)
 	}
-	info.Path = path
 
 	er.mu.Lock()
 	defer er.mu.Unlock()
@@ -362,9 +348,6 @@ func reconcileLinuxStartupEvents(snapshot, changes []DeviceEvent) []DeviceEvent 
 	ordered := make(map[string]struct{}, len(snapshot)+len(changes))
 
 	put := func(event DeviceEvent) {
-		if event.Type != DeviceEventConnected || event.DeviceInfo == nil || event.DeviceInfo.Path == "" {
-			return
-		}
 		path := event.DeviceInfo.Path
 		if _, ok := ordered[path]; !ok {
 			ordered[path] = struct{}{}
@@ -377,9 +360,6 @@ func reconcileLinuxStartupEvents(snapshot, changes []DeviceEvent) []DeviceEvent 
 		put(event)
 	}
 	for _, event := range changes {
-		if event.DeviceInfo == nil || event.DeviceInfo.Path == "" {
-			continue
-		}
 		switch event.Type {
 		case DeviceEventConnected:
 			put(event)
@@ -432,11 +412,6 @@ func linuxInitialEventSnapshot() ([]DeviceEvent, error) {
 
 		path := linuxHIDRawPath(name)
 		info, infoErr := getLinuxDeviceInfo(name)
-		if info == nil {
-			info = &DeviceInfo{Path: path}
-		} else {
-			info.Path = path
-		}
 		if infoErr != nil {
 			infoErr = fmt.Errorf("read HID metadata for %s: %w", path, infoErr)
 		}
@@ -463,12 +438,9 @@ func openLinuxUeventSocket() (socketFD int, wakeFD int, err error) {
 	// net.core.rmem_max, but even a clamped increase reduces ENOBUFS risk.
 	_ = unix.SetsockoptInt(socketFD, unix.SOL_SOCKET, unix.SO_RCVBUF, linuxUeventRcvbufSize)
 
-	closeSocket := func() {
-		_ = unix.Close(socketFD)
-	}
 	wakeFD, err = unix.Eventfd(0, unix.EFD_CLOEXEC|unix.EFD_NONBLOCK)
 	if err != nil {
-		closeSocket()
+		_ = unix.Close(socketFD)
 		return -1, -1, fmt.Errorf("open Linux HID event wake descriptor: %w", err)
 	}
 	if err := unix.Bind(socketFD, &unix.SockaddrNetlink{
@@ -476,7 +448,7 @@ func openLinuxUeventSocket() (socketFD int, wakeFD int, err error) {
 		Groups: linuxUeventGroup,
 	}); err != nil {
 		_ = unix.Close(wakeFD)
-		closeSocket()
+		_ = unix.Close(socketFD)
 		return -1, -1, fmt.Errorf("bind Linux uevent socket: %w", err)
 	}
 

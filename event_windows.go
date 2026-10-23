@@ -196,12 +196,7 @@ func cmNotificationCallback(
 		return 0
 	}
 
-	er, ok := v.(*cmEventReceiver)
-	if !ok {
-		return 0
-	}
-
-	return er.onAction(
+	return v.(*cmEventReceiver).onAction(
 		action,
 		(*_CM_NOTIFY_EVENT_DATA)(eventData),
 		eventDataSize,
@@ -245,10 +240,6 @@ func reconcileCMStartupEvents(snapshot []DeviceSnapshot, changes []DeviceEvent) 
 	ordered := make(map[string]struct{}, len(snapshot)+len(changes))
 
 	put := func(event DeviceEvent) {
-		if event.DeviceInfo == nil || event.DeviceInfo.Path == "" {
-			return
-		}
-
 		key := cmDevicePathKey(event.DeviceInfo.Path)
 		if _, ok := ordered[key]; !ok {
 			ordered[key] = struct{}{}
@@ -266,10 +257,6 @@ func reconcileCMStartupEvents(snapshot []DeviceSnapshot, changes []DeviceEvent) 
 	}
 
 	for _, event := range changes {
-		if event.DeviceInfo == nil || event.DeviceInfo.Path == "" {
-			continue
-		}
-
 		key := cmDevicePathKey(event.DeviceInfo.Path)
 		switch event.Type {
 		case DeviceEventConnected:
@@ -341,16 +328,14 @@ func Watch() (Watcher, error) {
 
 	var snapshot []DeviceSnapshot
 	for info, enumerateErr := range Enumerate() {
-		if info == nil && enumerateErr != nil {
+		if info == nil {
 			closeErr := receiver.Close()
 			return nil, errors.Join(
 				fmt.Errorf("enumerate initial HID snapshot: %w", enumerateErr),
 				closeErr,
 			)
 		}
-		if info != nil {
-			snapshot = append(snapshot, DeviceSnapshot{DeviceInfo: info, MetadataErr: enumerateErr})
-		}
+		snapshot = append(snapshot, DeviceSnapshot{DeviceInfo: info, MetadataErr: enumerateErr})
 	}
 	receiver.publishStartup(snapshot)
 

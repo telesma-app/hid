@@ -216,7 +216,7 @@ func TestLinuxAddPublishesPartialDeviceInfo(t *testing.T) {
 	defer queue.Close()
 
 	metadataErr := errors.New("sysfs is not ready")
-	loaded := &DeviceInfo{VendorID: Descriptor[uint16]{Value: new(uint16(0x1050))}, UsagePage: 0xf1d0}
+	loaded := &DeviceInfo{Path: "/dev/hidraw9", VendorID: Descriptor[uint16]{Value: new(uint16(0x1050))}, UsagePage: 0xf1d0}
 	receiver := &linuxEventReceiver{
 		events:  queue,
 		devices: make(map[string]*DeviceInfo),
