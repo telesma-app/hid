@@ -5,9 +5,14 @@
 
 `telesma-app/hid` is a cgo-free Go library for discovering and communicating with HID devices on Windows, macOS, and Linux. It uses native operating-system facilities and requires neither `libhidapi` nor a C toolchain.
 
-The library was created primarily as the HID backend for [`telesma-app/ctap`](https://github.com/telesma-app/ctap), but it is protocol-agnostic and can be used independently with other HID devices. The module is currently pre-v1, so its API may continue to evolve between minor releases.
+It is the HID backend for [`telesma-app/ctap`](https://github.com/telesma-app/ctap)
+and can also be used independently with other HID devices.
 
-## Supported platforms
+> [!WARNING]
+> This module is under active development. Its public API may change during `v0.x`.
+
+
+## Platform support
 
 | Capability | Windows | macOS | Linux |
 | --- | --- | --- | --- |
@@ -21,31 +26,41 @@ The library was created primarily as the HID backend for [`telesma-app/ctap`](ht
 
 ## Installation
 
-The module requires Go 1.27.3 or newer.
-
 ```sh
-go get github.com/telesma-app/hid
+go get github.com/telesma-app/hid@latest
 ```
 
-## Usage
+See [`go.mod`](go.mod) for the required Go version.
+
+## Quick start
 
 `Enumerate` returns a Go iterator. Filters are exact matches and can be combined; this example selects the FIDO HID usage collection used by `telesma-app`:
 
 ```go
-for info, err := range hid.Enumerate(
-	hid.WithUsagePage(0xf1d0),
-	hid.WithUsage(0x01),
-) {
-	if err != nil {
-		log.Printf("enumerate HID: %v", err)
-	}
-	if info == nil {
-		continue
-	}
+package main
 
-	log.Printf("path=%q", info.Path)
-	if info.ProductStr.Value != nil {
-		log.Printf("product=%q", *info.ProductStr.Value)
+import (
+	"log"
+
+	"github.com/telesma-app/hid"
+)
+
+func main() {
+	for info, err := range hid.Enumerate(
+		hid.WithUsagePage(0xf1d0),
+		hid.WithUsage(0x01),
+	) {
+		if err != nil {
+			log.Printf("enumerate HID: %v", err)
+		}
+		if info == nil {
+			continue
+		}
+
+		log.Printf("path=%q", info.Path)
+		if info.ProductStr.Value != nil {
+			log.Printf("product=%q", *info.ProductStr.Value)
+		}
 	}
 }
 ```
@@ -126,22 +141,20 @@ Watch covers all HID devices and should be filtered by the caller. Delivery is o
 - On macOS, enumeration and events do not open devices, but opening protected devices for I/O may still be denied by system or sandbox policy.
 - On Linux, access to `/dev/hidrawN` depends on udev rules and permissions. A connection event may arrive before the device node and its final permissions are ready.
 
-## Testing
+## Development
 
 ```sh
-go test ./...
-CGO_ENABLED=0 go test ./...
-go vet ./...
+GOWORK=off go test ./...
+GOWORK=off CGO_ENABLED=0 go test ./...
+GOWORK=off go vet ./...
 ```
-
-## Linting
 
 With [golangci-lint v2](https://golangci-lint.run/docs/welcome/install/) installed:
 
 ```sh
-golangci-lint run ./...
+GOWORK=off golangci-lint run ./...
 ```
 
 ## License
 
-Licensed under the [Apache License 2.0](LICENSE).
+[Apache License 2.0](LICENSE).
