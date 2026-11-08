@@ -21,7 +21,7 @@ The library was created primarily as the HID backend for [`telesma-app/ctap`](ht
 
 ## Installation
 
-The module requires Go 1.27 or newer.
+The module requires Go 1.27.3 or newer.
 
 ```sh
 go get github.com/telesma-app/hid
